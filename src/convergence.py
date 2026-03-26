@@ -1,0 +1,257 @@
+"""Convergence loop for generate-validate cycles in the AIEOS Agent Harness."""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Optional
+
+from src.adapters.base import AgentAdapter
+from src.models import (
+    AgentRequest,
+    AgentResponse,
+    ConvergenceState,
+    LifecycleEvent,
+    ValidationResult,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def parse_validation_result(response: AgentResponse) -> ValidationResult:
+    """Extract JSON from response content and parse into ValidationResult.
+
+    Look for JSON block in the response (between ```json and ``` or raw JSON).
+    Raise ValueError if not valid validation format.
+    """
+    content = response.content.strip()
+
+    # Try fenced JSON block first
+    fenced = re.search(r"```json\s*\n(.*?)\n\s*```", content, re.DOTALL)
+    if fenced:
+        raw = fenced.group(1).strip()
+    else:
+        # Try raw JSON (starts with {)
+        json_match = re.search(r"\{.*\}", content, re.DOTALL)
+        if json_match:
+            raw = json_match.group(0)
+        else:
+            raise ValueError(
+                f"No JSON found in validation response: {content[:200]}"
+            )
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in validation response: {exc}") from exc
+
+    required = {"status", "summary", "hard_gates", "blocking_issues"}
+    missing = required - set(data.keys())
+    if missing:
+        raise ValueError(f"Validation JSON missing required fields: {missing}")
+
+    return ValidationResult(
+        status=data["status"],
+        summary=data["summary"],
+        hard_gates=data.get("hard_gates", {}),
+        blocking_issues=data.get("blocking_issues", []),
+        warnings=data.get("warnings", []),
+        completeness_score=int(data.get("completeness_score", 0)),
+    )
+
+
+class ConvergenceLoop:
+    """Bounded generate-validate loop with staleness and oscillation detection."""
+
+    def __init__(
+        self,
+        generate_adapter: AgentAdapter,
+        validate_adapter: AgentAdapter,
+        max_iterations: int = 3,
+    ) -> None:
+        self._gen = generate_adapter
+        self._val = validate_adapter
+        self._max = max_iterations
+
+    def run(
+        self,
+        gen_request: AgentRequest,
+        val_request: AgentRequest,
+    ) -> tuple[AgentResponse, ValidationResult, ConvergenceState]:
+        """Run convergence loop.
+
+        1. Generate artifact (invoke generate_adapter with gen_request)
+        2. Validate (invoke validate_adapter with val_request, setting
+           current_artifact to generated content)
+        3. Parse validation result
+        4. If PASS: return (response, result, state)
+        5. If FAIL and iteration < max:
+           a. Check for staleness (same gate failing with same description)
+           b. Check for oscillation (gate A/B alternating)
+           c. Build correction request with blocking_issues
+           d. Re-generate with correction request
+           e. Go to step 2
+        6. If FAIL and iteration >= max: return with state indicating
+           escalation needed
+
+        CRITICAL: generate and validate are ALWAYS separate invoke() calls.
+        The validate_adapter may be the same adapter instance as
+        generate_adapter, but it receives a fresh request with no shared
+        session state.
+        """
+        state = ConvergenceState(
+            artifact_id=gen_request.metadata.get("artifact_id", "unknown"),
+            artifact_type=gen_request.artifact_type,
+            max_iterations=self._max,
+        )
+
+        current_gen_request = gen_request
+
+        for iteration in range(self._max):
+            state.current_iteration = iteration + 1
+
+            # Step 1: Generate
+            gen_response = self._gen.invoke(current_gen_request)
+
+            # Step 2: Validate (fresh request with generated content)
+            validation_request = AgentRequest(
+                artifact_type=val_request.artifact_type,
+                event=val_request.event,
+                spec_content=val_request.spec_content,
+                template_content=val_request.template_content,
+                prompt_content=val_request.prompt_content,
+                upstream_artifacts=val_request.upstream_artifacts,
+                current_artifact=gen_response.content,
+                correction_constraints=val_request.correction_constraints,
+                metadata=val_request.metadata,
+            )
+            val_response = self._val.invoke(validation_request)
+
+            # Step 3: Parse validation result
+            result = parse_validation_result(val_response)
+
+            # Record in ledger
+            ledger_entry = {
+                "iteration": state.current_iteration,
+                "status": result.status,
+                "hard_gates": dict(result.hard_gates),
+                "blocking_issues": list(result.blocking_issues),
+                "completeness_score": result.completeness_score,
+            }
+            state.ledger.append(ledger_entry)
+
+            # Step 4: If PASS, return
+            if result.status == "PASS":
+                return gen_response, result, state
+
+            # Step 5: If FAIL and not at max, attempt correction
+            if iteration < self._max - 1:
+                # Check staleness and oscillation
+                if self._detect_staleness(state):
+                    logger.warning(
+                        "Staleness detected at iteration %d for %s",
+                        state.current_iteration,
+                        state.artifact_id,
+                    )
+                if self._detect_oscillation(state):
+                    logger.warning(
+                        "Oscillation detected at iteration %d for %s",
+                        state.current_iteration,
+                        state.artifact_id,
+                    )
+
+                # Build correction request
+                current_gen_request = self._build_correction_request(
+                    gen_request, result.blocking_issues
+                )
+
+        # Step 6: Max iterations reached, escalation needed
+        return gen_response, result, state
+
+    def _detect_staleness(self, state: ConvergenceState) -> bool:
+        """Same gate failing with same description in last 2 ledger entries."""
+        if len(state.ledger) < 2:
+            return False
+
+        prev = state.ledger[-2]
+        curr = state.ledger[-1]
+
+        # Find gates that failed in both
+        prev_failed = {
+            k: v for k, v in prev.get("hard_gates", {}).items() if v == "FAIL"
+        }
+        curr_failed = {
+            k: v for k, v in curr.get("hard_gates", {}).items() if v == "FAIL"
+        }
+
+        common_failed = set(prev_failed.keys()) & set(curr_failed.keys())
+        if not common_failed:
+            return False
+
+        # Check if blocking issues have the same description for common gates
+        prev_issues = {
+            issue.get("gate"): issue.get("description")
+            for issue in prev.get("blocking_issues", [])
+        }
+        curr_issues = {
+            issue.get("gate"): issue.get("description")
+            for issue in curr.get("blocking_issues", [])
+        }
+
+        for gate in common_failed:
+            if gate in prev_issues and gate in curr_issues:
+                if prev_issues[gate] == curr_issues[gate]:
+                    return True
+
+        return False
+
+    def _detect_oscillation(self, state: ConvergenceState) -> bool:
+        """Gate A fails in iteration N, passes in N+1 but gate B fails,
+        then gate A fails again in N+2.
+        """
+        if len(state.ledger) < 3:
+            return False
+
+        entries = state.ledger[-3:]
+        failed_sets = []
+        for entry in entries:
+            failed = {
+                k for k, v in entry.get("hard_gates", {}).items() if v == "FAIL"
+            }
+            failed_sets.append(failed)
+
+        # Oscillation: a gate that failed in N, passed in N+1, failed in N+2
+        for gate in failed_sets[0]:
+            if gate not in failed_sets[1] and gate in failed_sets[2]:
+                return True
+
+        return False
+
+    def _build_correction_request(
+        self,
+        original: AgentRequest,
+        blocking_issues: list[dict],
+    ) -> AgentRequest:
+        """Clone original request, add blocking issues as correction_constraints."""
+        constraints = list(original.correction_constraints)
+        for issue in blocking_issues:
+            desc = issue.get("description", "")
+            gate = issue.get("gate", "")
+            location = issue.get("location", "")
+            constraint = f"[{gate}] {desc}"
+            if location:
+                constraint += f" (at: {location})"
+            constraints.append(constraint)
+
+        return AgentRequest(
+            artifact_type=original.artifact_type,
+            event=original.event,
+            spec_content=original.spec_content,
+            template_content=original.template_content,
+            prompt_content=original.prompt_content,
+            upstream_artifacts=original.upstream_artifacts,
+            current_artifact=original.current_artifact,
+            correction_constraints=constraints,
+            metadata=original.metadata,
+        )
