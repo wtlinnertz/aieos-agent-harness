@@ -19,10 +19,10 @@
 | Field | Value |
 |-------|-------|
 | Current Layer | 4 — Engineering Execution |
-| Current Artifact | between artifacts — Layer 4 complete |
-| Current Step | EEK complete — cross-cutting kit decisions pending |
+| Current Artifact | Engagement complete |
+| Current Step | Layer 4 complete, all cross-cutting kits declined, no REK/RRK |
 | Frozen Count | 8 |
-| Next Action | Cross-cutting kit adoption decisions (QAK, DCK, DKK, BPK), then Layer 5 (REK) |
+| Next Action | None — engagement closed |
 | Blocking On | nothing — ready to proceed |
 | Last Updated | 2026-03-26 22:15 |
 
@@ -64,25 +64,50 @@ SSK not engaged — fast-path Build justified in KER. This is a custom-built orc
 **Key decisions:**
 
 - Retroactive governance: Initiative built first (2026-03-25), governed retroactively (2026-03-26). Artifacts document existing decisions rather than plan future ones. Justified: code is stable, tested, and assessed at AI SDLC Governance Level 2.
+- Cross-cutting kits declined: QAK (166 tests + Level 2 assessment sufficient), SCK (threat assessment + shadow scan + data classification already exist), DCK (single YAML config, well-documented), DKK (4 user-facing docs already exist), BPK (developer tool, no process impact).
+- REK/RRK not engaged: Library + CLI installed locally via pip. No production deployment, no SLOs. Future production deployment would trigger REK engagement as a separate initiative.
 
 **Gate failures (if any):**
 
-(none yet)
+None — all 8 artifacts validated PASS on first attempt.
 
 ---
 
 ## §4 Layer 5 — Release & Exposure
 
-(not started)
+REK not engaged — library + CLI installed locally via pip. No production deployment. If the harness is deployed as a service in the future, REK engagement should be triggered as a new initiative.
 
 ---
 
 ## §5 Layer 6 — Reliability & Resilience
 
-(not started)
+RRK not engaged — no production SLOs. Circuit breaker and bounded convergence provide local reliability, but no operational monitoring or health reviews are applicable for a locally-installed tool.
+
+---
+
+## Cross-Cutting Kit Decisions
+
+| Kit | Decision | Justification |
+|-----|----------|---------------|
+| QAK (Layer 9) | Not adopted | 166 tests + AI SDLC Governance Level 2 assessment provide sufficient quality assurance |
+| SCK (Layer 10) | Not adopted | Threat assessment, shadow agent scan, and data classification already exist from Level 2 remediation |
+| DCK (Layer 11) | Not adopted | Single YAML config file, documented in configuration.md. No feature flags or complex schemas |
+| DKK (Layer 13) | Not adopted | architecture.md, configuration.md, adding-providers.md, README already cover all user documentation |
+| PRK (Layer 14) | Not adopted | Retroactive governance of stable, tested system. No architectural risk requiring multi-lens review |
+| BPK (Layer 15) | Not adopted | Developer tool with no business process impact |
 
 ---
 
 ## §16 Framework Findings
 
-(none yet)
+### FINDING-1: Retroactive governance is viable but produces different artifacts
+
+**Type:** Process observation
+**Description:** When governing an existing codebase retroactively, artifacts document decisions already made rather than plan future work. This changes the artifact character — requirements use "SHALL" (documenting what exists) not "should" (planning what will exist). All 8 artifacts validated PASS on first attempt because the code already satisfies the requirements extracted from it. This is expected for retroactive governance but means the validation loop doesn't serve its usual quality-improvement function.
+**Recommendation:** Consider adding a "Retroactive" flag to ER Document Control so downstream consumers know these artifacts describe existing state, not design intent.
+
+### FINDING-2: AI SDLC Governance assessment is complementary to AIEOS governance
+
+**Type:** Integration observation
+**Description:** The harness was assessed at AI SDLC Governance Level 2 before AIEOS governance was applied. The two frameworks cover different concerns: AI SDLC Governance checks practice quality (human oversight, agent security, eval quality, anti-slop). AIEOS checks artifact quality (specs, architecture, design, decomposition). Together they provide comprehensive governance. Neither subsumes the other.
+**Recommendation:** Document this complementary relationship in both frameworks' getting-started guides.
