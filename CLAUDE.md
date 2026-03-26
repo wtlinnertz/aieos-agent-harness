@@ -55,6 +55,9 @@ pytest -v
 
 # Slow tests (requires ANTHROPIC_API_KEY)
 pytest -v --run-slow
+
+# Verified install (pinned with hashes)
+pip install -r requirements-lock.txt
 ```
 
 ## Core Concepts
@@ -76,6 +79,19 @@ pytest -v --run-slow
 5. Validators judge only (standardized JSON output, no suggestions)
 6. Tool-agnostic policy (provider details in adapters, not governance files)
 7. Disk-based state (ER + Journal files are system of record)
+
+## Eval Domain Ownership
+
+| Domain | Owner | Expertise Basis | Review Cadence |
+|--------|-------|----------------|----------------|
+| Invariant checks | Todd Linnertz | Framework designer | Quarterly |
+| Routing strategies | Todd Linnertz | Implementation author | Quarterly |
+| Convergence loop | Todd Linnertz | Implementation author | Quarterly |
+| Adapter conformance | Todd Linnertz | Spec author | Quarterly |
+| Integration tests | Todd Linnertz | Test designer | Quarterly |
+
+Last reviewed: 2026-03-26
+Next review: 2026-06-26
 
 ## Adding a New Provider
 

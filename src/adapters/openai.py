@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 
@@ -118,6 +119,15 @@ class OpenAIAdapter:
             + (tokens_out / 1000) * pricing["output"]
         )
 
+        # Compute input content hash for provenance
+        hash_input = (
+            request.spec_content
+            + request.template_content
+            + request.prompt_content
+            + "".join(request.upstream_artifacts.values())
+        )
+        input_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
         return AgentResponse(
             content=content,
             provider=self.provider_name,
@@ -130,6 +140,8 @@ class OpenAIAdapter:
                 "id": response.id,
                 "finish_reason": choice.finish_reason,
             },
+            human_author=request.metadata.get("human_author"),
+            input_content_hash=input_hash,
         )
 
     def health(self) -> HealthStatus:

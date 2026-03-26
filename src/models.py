@@ -68,6 +68,11 @@ class AgentResponse:
     cost_usd: float
     latency_ms: float
     raw_response: Optional[dict] = None
+    # Five-element provenance (AI SDLC Governance — Human Oversight gate 5)
+    human_author: Optional[str] = None
+    input_content_hash: Optional[str] = None
+    modification_record: Optional[list[dict]] = None
+    compliance_attestation: Optional[str] = None
 
 
 @dataclass

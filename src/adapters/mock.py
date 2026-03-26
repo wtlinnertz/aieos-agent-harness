@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from src.models import AgentRequest, AgentResponse, HealthStatus
@@ -43,6 +44,13 @@ class MockAdapter:
             request.artifact_type,
             f"Mock response for {request.artifact_type}",
         )
+        hash_input = (
+            request.spec_content
+            + request.template_content
+            + request.prompt_content
+            + "".join(request.upstream_artifacts.values())
+        )
+        input_hash = hashlib.sha256(hash_input.encode()).hexdigest()
         return AgentResponse(
             content=content,
             provider=self._provider_name,
@@ -51,6 +59,8 @@ class MockAdapter:
             tokens_out=200,
             cost_usd=0.001,
             latency_ms=50.0,
+            human_author=request.metadata.get("human_author"),
+            input_content_hash=input_hash,
         )
 
     def health(self) -> HealthStatus:

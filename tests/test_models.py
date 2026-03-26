@@ -102,6 +102,63 @@ class TestAgentResponse:
         )
         assert resp.raw_response == {"id": "resp-123"}
 
+    def test_provenance_fields_default_none(self):
+        resp = AgentResponse(
+            content="output",
+            provider="test",
+            model="test",
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            latency_ms=0.0,
+        )
+        assert resp.human_author is None
+        assert resp.input_content_hash is None
+        assert resp.modification_record is None
+        assert resp.compliance_attestation is None
+
+    def test_provenance_fields_populated(self):
+        resp = AgentResponse(
+            content="output",
+            provider="test",
+            model="test",
+            tokens_in=0,
+            tokens_out=0,
+            cost_usd=0.0,
+            latency_ms=0.0,
+            human_author="Todd Linnertz",
+            input_content_hash="abc123",
+            modification_record=[{"action": "reviewed", "by": "Todd"}],
+            compliance_attestation="SOX-2026-Q1",
+        )
+        assert resp.human_author == "Todd Linnertz"
+        assert resp.input_content_hash == "abc123"
+        assert len(resp.modification_record) == 1
+        assert resp.compliance_attestation == "SOX-2026-Q1"
+
+
+class TestMockAdapterProvenance:
+    def test_mock_adapter_populates_provenance(self):
+        from src.adapters.mock import MockAdapter
+        from src.models import AgentRequest, LifecycleEvent
+
+        adapter = MockAdapter()
+        request = AgentRequest(
+            artifact_type="SAD",
+            event=LifecycleEvent.POST_GENERATION,
+            spec_content="spec",
+            template_content="template",
+            prompt_content="prompt",
+            upstream_artifacts={"PRD-TEST-001": "prd content"},
+            current_artifact=None,
+            correction_constraints=[],
+            metadata={"human_author": "Todd Linnertz"},
+        )
+        response = adapter.invoke(request)
+        assert response.human_author == "Todd Linnertz"
+        assert response.input_content_hash is not None
+        assert len(response.input_content_hash) == 64  # SHA256 hex digest
+
 
 class TestValidationResult:
     def test_construction(self):
