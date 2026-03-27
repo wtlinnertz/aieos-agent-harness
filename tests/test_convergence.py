@@ -373,3 +373,135 @@ class TestConvergenceLoop:
 
         # Generator and validator are separate adapter instances
         assert gen is not val
+
+
+# ---------------------------------------------------------------------------
+# Lens-driven convergence tests
+# ---------------------------------------------------------------------------
+
+
+class TestLensReviewConvergence:
+    """Lens reviews that FAIL feed back into the convergence loop."""
+
+    def _make_request(self):
+        return AgentRequest(
+            artifact_type="SAD",
+            event=LifecycleEvent.POST_GENERATION,
+            spec_content="spec",
+            template_content="template",
+            prompt_content="prompt",
+            upstream_artifacts={},
+            current_artifact=None,
+            correction_constraints=[],
+            metadata={"artifact_id": "SAD-TEST-001"},
+        )
+
+    def _make_val_request(self):
+        return AgentRequest(
+            artifact_type="SAD",
+            event=LifecycleEvent.POST_VALIDATION,
+            spec_content="spec",
+            template_content="",
+            prompt_content="validate",
+            upstream_artifacts={},
+            current_artifact=None,
+            correction_constraints=[],
+            metadata={},
+        )
+
+    def _pass_json(self):
+        return json.dumps({
+            "status": "PASS", "summary": "OK",
+            "hard_gates": {"g1": "PASS"},
+            "blocking_issues": [], "warnings": [],
+            "completeness_score": 90,
+        })
+
+    def _fail_json(self, gate="threat_boundary", desc="Missing threat boundary"):
+        return json.dumps({
+            "status": "FAIL", "summary": "Lens failed",
+            "hard_gates": {gate: "FAIL"},
+            "blocking_issues": [{"gate": gate, "description": desc, "location": "§4"}],
+            "warnings": [],
+            "completeness_score": 40,
+        })
+
+    def test_lens_pass_no_re_generation(self):
+        """All lenses pass — no re-generation needed."""
+        gen = MockAdapter(preset_responses={"SAD": "architecture content"})
+        val = SequentialMockAdapter("val", "v1", [self._pass_json()] * 10)
+        sec_lens = SequentialMockAdapter("sec", "v1", [self._pass_json()] * 10)
+
+        loop = ConvergenceLoop(gen, val, lens_adapters={"security": sec_lens})
+        response, result, state = loop.run(self._make_request(), self._make_val_request())
+
+        assert result.status == "PASS"
+        assert state.current_iteration == 1
+        assert len(gen.call_history) == 1  # Generated once, no re-generation
+
+    def test_lens_fail_triggers_re_generation(self):
+        """Lens FAIL feeds back as correction constraint and re-generates."""
+        gen = MockAdapter(preset_responses={"SAD": "architecture content"})
+        # Validator always passes
+        val = SequentialMockAdapter("val", "v1", [self._pass_json()] * 10)
+        # Security lens: FAIL first time, PASS second time
+        sec_lens = SequentialMockAdapter(
+            "sec", "v1",
+            [self._fail_json(), self._pass_json()]
+        )
+
+        loop = ConvergenceLoop(gen, val, lens_adapters={"security": sec_lens})
+        response, result, state = loop.run(self._make_request(), self._make_val_request())
+
+        assert result.status == "PASS"
+        assert state.current_iteration == 2  # Required 2 iterations
+        assert len(gen.call_history) == 2  # Generated twice
+        # Second generation should have correction constraint from lens
+        second_request = gen.call_history[1][1][0]
+        assert any("threat_boundary" in c for c in second_request.correction_constraints)
+
+    def test_lens_fail_at_max_iterations_returns_fail(self):
+        """Lens keeps failing through all iterations — result is FAIL."""
+        gen = MockAdapter(preset_responses={"SAD": "architecture content"})
+        val = SequentialMockAdapter("val", "v1", [self._pass_json()] * 10)
+        # Security lens always fails
+        sec_lens = SequentialMockAdapter(
+            "sec", "v1",
+            [self._fail_json()] * 10
+        )
+
+        loop = ConvergenceLoop(gen, val, max_iterations=3, lens_adapters={"security": sec_lens})
+        response, result, state = loop.run(self._make_request(), self._make_val_request())
+
+        assert result.status == "FAIL"
+        assert "Lens review failures" in result.summary
+        assert state.current_iteration == 3
+
+    def test_multiple_lenses_independent(self):
+        """Multiple lenses run independently — one fail doesn't affect others."""
+        gen = MockAdapter(preset_responses={"SAD": "architecture content"})
+        val = SequentialMockAdapter("val", "v1", [self._pass_json()] * 10)
+        sec_lens = SequentialMockAdapter("sec", "v1", [self._fail_json(), self._pass_json()])
+        rel_lens = SequentialMockAdapter("rel", "v1", [self._pass_json()] * 10)
+
+        loop = ConvergenceLoop(
+            gen, val,
+            lens_adapters={"security": sec_lens, "reliability": rel_lens},
+        )
+        response, result, state = loop.run(self._make_request(), self._make_val_request())
+
+        assert result.status == "PASS"
+        # Both lenses should have been invoked
+        assert len(sec_lens.call_history) >= 1
+        assert len(rel_lens.call_history) >= 1
+
+    def test_no_lenses_behaves_as_before(self):
+        """Without lenses, convergence loop works exactly as before."""
+        gen = MockAdapter(preset_responses={"SAD": "architecture content"})
+        val = SequentialMockAdapter("val", "v1", [self._pass_json()])
+
+        loop = ConvergenceLoop(gen, val)  # No lens_adapters
+        response, result, state = loop.run(self._make_request(), self._make_val_request())
+
+        assert result.status == "PASS"
+        assert state.current_iteration == 1

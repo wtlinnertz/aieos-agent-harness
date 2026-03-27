@@ -62,17 +62,25 @@ def parse_validation_result(response: AgentResponse) -> ValidationResult:
 
 
 class ConvergenceLoop:
-    """Bounded generate-validate loop with staleness and oscillation detection."""
+    """Bounded generate-validate loop with staleness and oscillation detection.
+
+    Supports optional lens reviewers: after validation PASS, run lens
+    reviews. If any lens returns FAIL, feed findings back as correction
+    constraints and re-generate. The lens review loop shares the same
+    max_iterations budget as the validator convergence loop.
+    """
 
     def __init__(
         self,
         generate_adapter: AgentAdapter,
         validate_adapter: AgentAdapter,
         max_iterations: int = 3,
+        lens_adapters: dict[str, AgentAdapter] | None = None,
     ) -> None:
         self._gen = generate_adapter
         self._val = validate_adapter
         self._max = max_iterations
+        self._lenses = lens_adapters or {}
 
     def run(
         self,
@@ -141,8 +149,35 @@ class ConvergenceLoop:
             }
             state.ledger.append(ledger_entry)
 
-            # Step 4: If PASS, return
+            # Step 4: If PASS, check lens reviews (if any)
             if result.status == "PASS":
+                if self._lenses:
+                    lens_issues = self._run_lens_reviews(
+                        gen_response, gen_request, state
+                    )
+                    if lens_issues:
+                        # Lens failures — feed back as correction constraints
+                        logger.info(
+                            "Lens review found %d issues for %s — re-generating",
+                            len(lens_issues),
+                            state.artifact_id,
+                        )
+                        if iteration < self._max - 1:
+                            current_gen_request = self._build_correction_request(
+                                gen_request, lens_issues
+                            )
+                            continue  # Re-enter loop
+                        else:
+                            # At max iterations — return with lens failures noted
+                            result = ValidationResult(
+                                status="FAIL",
+                                summary=f"Lens review failures after {state.current_iteration} iterations",
+                                hard_gates=result.hard_gates,
+                                blocking_issues=lens_issues,
+                                warnings=result.warnings,
+                                completeness_score=result.completeness_score,
+                            )
+                            return gen_response, result, state
                 return gen_response, result, state
 
             # Step 5: If FAIL and not at max, attempt correction
@@ -168,6 +203,61 @@ class ConvergenceLoop:
 
         # Step 6: Max iterations reached, escalation needed
         return gen_response, result, state
+
+    def _run_lens_reviews(
+        self,
+        gen_response: AgentResponse,
+        gen_request: AgentRequest,
+        state: ConvergenceState,
+    ) -> list[dict]:
+        """Run all lens reviewers on the generated artifact.
+
+        Each lens runs in a separate invoke() call with independent context
+        (no lens sees another lens's output — Pattern 1 invariant).
+
+        Returns a list of blocking issues from all failing lenses (empty if all pass).
+        """
+        all_issues: list[dict] = []
+
+        for lens_name, lens_adapter in self._lenses.items():
+            lens_request = AgentRequest(
+                artifact_type=gen_request.artifact_type,
+                event=LifecycleEvent.POST_VALIDATION,
+                spec_content=gen_request.spec_content,
+                template_content="",
+                prompt_content=f"Review this artifact from a {lens_name} perspective.",
+                upstream_artifacts=gen_request.upstream_artifacts,
+                current_artifact=gen_response.content,
+                correction_constraints=[],
+                metadata={
+                    **gen_request.metadata,
+                    "lens": lens_name,
+                },
+            )
+
+            try:
+                lens_response = lens_adapter.invoke(lens_request)
+                lens_result = parse_validation_result(lens_response)
+
+                state.ledger.append({
+                    "iteration": state.current_iteration,
+                    "lens": lens_name,
+                    "status": lens_result.status,
+                    "blocking_issues": list(lens_result.blocking_issues),
+                })
+
+                if lens_result.status == "FAIL":
+                    for issue in lens_result.blocking_issues:
+                        all_issues.append({
+                            "gate": f"lens:{lens_name}:{issue.get('gate', 'unknown')}",
+                            "description": issue.get("description", ""),
+                            "location": issue.get("location", ""),
+                        })
+            except Exception as exc:
+                logger.warning("Lens %s failed with error: %s", lens_name, exc)
+                # Lens errors don't block — log and continue
+
+        return all_issues
 
     def _detect_staleness(self, state: ConvergenceState) -> bool:
         """Same gate failing with same description in last 2 ledger entries."""
