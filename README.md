@@ -29,12 +29,11 @@ PYTHONPATH=. python -m src.cli health
 
 Five components work together to orchestrate artifact lifecycles:
 
-1. **Config Loader** -- reads `harness.yaml` + environment variables
-2. **Lifecycle Binder** -- maps lifecycle events to adapter invocations
-3. **Routing Engine** -- four strategies (fallback, pipeline, parallel consensus, cost-aware)
-4. **Provider Adapter Layer** -- pluggable adapters (Anthropic, OpenAI, Tool, Mock)
-5. **State Manager** -- reads/writes ER state blocks and Sherpa Journal on disk
-6. **Observability Layer** -- per-invocation cost, latency, and token metrics in JSONL
+1. **Lifecycle Binder** -- maps lifecycle events to adapter invocations
+2. **Routing Engine** -- four strategies (fallback, pipeline, parallel consensus, cost-aware)
+3. **Provider Adapter Layer** -- pluggable adapters (Anthropic, OpenAI, Tool, Mock)
+4. **State Manager** -- reads/writes ER state blocks and Sherpa Journal on disk
+5. **Observability Layer** -- per-invocation cost, latency, and token metrics in JSONL
 
 See [docs/architecture.md](docs/architecture.md) for the full component diagram and data flow.
 

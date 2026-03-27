@@ -43,7 +43,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 - `harness.yaml.example` — configuration reference
 - `docs/architecture.md`, `docs/configuration.md`, `docs/adding-providers.md`
 - `src/invariants.py` — 7 invariant checks codified
-- 163 tests across unit and integration suites
+- 166 tests across unit and integration suites
 
 ---
 
@@ -91,9 +91,9 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `evals_before_generation` | **PASS** | `src/invariants.py` checks run before generation: `check_freeze_before_promote()`, `check_generation_validation_separation()`, `check_disk_based_state()`. 163 tests exist as pre-existing eval suite. |
+| `evals_before_generation` | **PASS** | `src/invariants.py` checks run before generation: `check_freeze_before_promote()`, `check_generation_validation_separation()`, `check_disk_based_state()`. 166 tests exist as pre-existing eval suite. |
 | `golden_test_sets_exist` | **PASS** | `tests/conftest.py` provides fixture ER content, journal content, frozen artifacts. Integration tests (`test_single_lifecycle.py`, `test_convergence_loop.py`, `test_lens_orchestration.py`) serve as golden test sets with expected outputs. Created within last 90 days. |
-| `failure_driven_expansion` | **PASS** | Lens orchestration tests were added specifically to close a coverage gap identified during review. The test suite grew from 133 → 143 → 163 as gaps were identified. Evidence: git history shows test expansion driven by identified scenarios. |
+| `failure_driven_expansion` | **PASS** | Lens orchestration tests were added specifically to close a coverage gap identified during review. The test suite grew from 133 → 143 → 163 → 166 as gaps were identified. Evidence: git history shows test expansion driven by identified scenarios. |
 | `independent_verification` | **PASS** | Core design: `check_generation_validation_separation()` enforces gen ≠ val sessions. `ConvergenceLoop` uses separate adapter instances for generation and validation. Tests verify: `test_generation_validation_separation`, `test_convergence_uses_separate_sessions`. |
 | `senior_ownership` | **PASS** | CLAUDE.md §Eval Domain Ownership documents 5 eval domains with named owner (Todd Linnertz), expertise basis, and quarterly review cadence. Last reviewed: 2026-03-26. Next review: 2026-06-26. |
 | `environment_aware_evals` | **PASS** | `check_freeze_before_promote()` validates environmental context (upstream artifacts frozen). `check_disk_based_state()` verifies ER and journal exist. `check_tool_agnostic_policy()` validates governance content. Integration tests create realistic file system fixtures. |
@@ -110,7 +110,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 | Gate | Status | Evidence |
 |------|--------|----------|
-| `environment_quality` | **PASS** | `CLAUDE.md` exists with project instructions. `pytest.ini` configured. 163 tests passing. `requirements.txt` present. `harness.yaml.example` documents setup. `docs/adding-providers.md` documents contributor path. |
+| `environment_quality` | **PASS** | `CLAUDE.md` exists with project instructions. `pytest.ini` configured. 166 tests passing. `requirements.txt` present. `harness.yaml.example` documents setup. `docs/adding-providers.md` documents contributor path. |
 | `diagnose_rerun_discipline` | **PASS** | `src/convergence.py:ConvergenceLoop` implements diagnose-and-rerun: on FAIL, builds correction request with blocking issues as constraints, re-generates from scratch. `_build_correction_request()` clones original request (never patches). Tested: `test_convergence_after_one_correction`, `test_convergence_after_two_corrections`. |
 | `focused_agents` | **PASS** | Each adapter invocation handles one task. `AgentRequest` has single `artifact_type` and single `event`. Pipeline strategy chains single-task invocations sequentially. Tested: `test_pipeline_chains_output` verifies each step is distinct. |
 | `context_completeness` | **PASS** | `AgentRequest` explicitly requires: `spec_content`, `template_content`, `prompt_content`, `upstream_artifacts`, `metadata`. `check_freeze_before_promote()` verifies upstream context is frozen. `_build_correction_request()` adds blocking issues as explicit constraints. |
@@ -201,7 +201,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
-| AI output verification exists | Full | 100% | `check_validator_output_format()` verifies structure. 163 tests verify behavior. |
+| AI output verification exists | Full | 100% | `check_validator_output_format()` verifies structure. 166 tests verify behavior. |
 | Test skepticism for AI-generated tests | Partial | 50% | Tests were reviewed during development but no formal AI-test skepticism gate |
 | Behavioral/property testing | Full | 100% | Convergence tests verify behavioral properties (staleness, oscillation). Routing tests verify strategy properties (fallback, consensus threshold). |
 | Sandboxing and isolation | Full | 100% | MockAdapter for testing. Per-lens isolation tested. ThreadPoolExecutor fan-out tested. No real API calls in standard test suite. |
@@ -212,7 +212,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | Bias and stress testing | Not | 0% | No bias or stress testing |
 | AI code quality in PRs | Not | 0% | No PR review process (solo project) |
 | Review AI-generated tests with rigor | Partial | 50% | Tests were reviewed but no documented review process |
-| Regression tests after bugfix | Full | 100% | Test expansion from 133→163 driven by identified gaps |
+| Regression tests after bugfix | Full | 100% | Test expansion from 133→166 driven by identified gaps |
 | Hallucination severity taxonomy | Not | 0% | No severity classification for AI output errors |
 | Dry-run mode for new workflows | Not | 0% | No dry-run/observation mode |
 
