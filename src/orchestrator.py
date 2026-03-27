@@ -59,6 +59,7 @@ class WDDOrchestrator:
         phase_prompts: dict[str, str],  # phase -> prompt content
         generate_adapter_name: str = "default",
         validate_adapter_name: str = "default",
+        review_adapter_name: str | None = None,
         max_workers: int = 4,
         ledger_path: str | None = None,
     ):
@@ -72,6 +73,7 @@ class WDDOrchestrator:
         self._phase_prompts = phase_prompts
         self._gen_name = generate_adapter_name
         self._val_name = validate_adapter_name
+        self._review_name = review_adapter_name or generate_adapter_name
         self._max_workers = max_workers
 
         lp = ledger_path or str(
@@ -259,7 +261,11 @@ class WDDOrchestrator:
 
         Returns dict with output_path, validation_status, convergence_iterations.
         """
-        gen_adapter = self._adapters[self._gen_name]
+        # Review phase uses a different adapter for independent evaluation
+        if phase == "review":
+            gen_adapter = self._adapters[self._review_name]
+        else:
+            gen_adapter = self._adapters[self._gen_name]
         val_adapter = self._adapters[self._val_name]
 
         request = AgentRequest(

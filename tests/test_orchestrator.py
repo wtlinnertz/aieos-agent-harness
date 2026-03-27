@@ -407,3 +407,44 @@ class TestExecutionResult:
         assert result.items_failed == 0
         assert result.items_human_pending == 1
         assert "ledger.md" in result.ledger_path
+
+
+class TestReviewUsesSeperateAdapter:
+    """Review phase should use a different adapter than generation."""
+
+    def test_review_adapter_receives_review_calls(
+        self, two_group_plan, tmp_path, val_adapter, phase_prompts
+    ):
+        gen = MockAdapter(provider_name="gen-sonnet", model_name="sonnet")
+        review = MockAdapter(provider_name="review-opus", model_name="opus")
+
+        orch = _build_orchestrator(
+            two_group_plan, tmp_path, gen, val_adapter, phase_prompts,
+            review_adapter_name="reviewer",
+        )
+        # Add reviewer adapter to the adapters dict
+        orch._adapters["reviewer"] = review
+
+        orch.execute()
+
+        # Gen adapter should have calls for tests, plan, code phases
+        gen_phases = {call[1][0].metadata["phase"] for call in gen.call_history if call[0] == "invoke"}
+        # Review adapter should have calls for review phase
+        review_phases = {call[1][0].metadata["phase"] for call in review.call_history if call[0] == "invoke"}
+
+        assert "tests" in gen_phases
+        assert "plan" in gen_phases
+        assert "code" in gen_phases
+        assert "review" not in gen_phases, "Gen adapter should NOT handle review phase"
+        assert "review" in review_phases, "Review adapter should handle review phase"
+        assert "tests" not in review_phases, "Review adapter should NOT handle tests phase"
+
+    def test_default_review_falls_back_to_gen(
+        self, two_group_plan, tmp_path, gen_adapter, val_adapter, phase_prompts
+    ):
+        """If no review_adapter_name specified, review uses gen adapter (backward compat)."""
+        orch = _build_orchestrator(
+            two_group_plan, tmp_path, gen_adapter, val_adapter, phase_prompts
+        )
+        # No review_adapter_name → self._review_name == self._gen_name
+        assert orch._review_name == orch._gen_name
