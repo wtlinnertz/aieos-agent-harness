@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from src.models import AgentSpecies
+
 
 @dataclass
 class ProviderConfig:
@@ -79,6 +81,17 @@ def load_config(path: Path) -> HarnessConfig:
         observability_log=raw.get("observability_log", "harness-metrics.jsonl"),
         bindings=raw.get("bindings", []),
     )
+
+    # -- Parse species in bindings --
+    for binding in config.bindings:
+        if isinstance(binding, dict) and "species" in binding:
+            species_str = binding["species"].upper()
+            try:
+                binding["species"] = AgentSpecies(species_str)
+            except ValueError:
+                binding["species"] = AgentSpecies.DARK_FACTORY
+        elif isinstance(binding, dict):
+            binding["species"] = AgentSpecies.DARK_FACTORY
 
     # -- Environment variable overrides --
     if os.environ.get("AIEOS_ROOT"):

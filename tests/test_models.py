@@ -3,6 +3,7 @@
 from src.models import (
     AgentRequest,
     AgentResponse,
+    AgentSpecies,
     ArtifactStatus,
     ConvergenceState,
     DecisionOutcome,
@@ -223,6 +224,15 @@ class TestConvergenceState:
         cs2 = ConvergenceState(artifact_id="B", artifact_type="PRD")
         cs1.ledger.append({"iter": 1})
         assert cs2.ledger == []
+
+
+class TestAgentSpecies:
+    def test_species_values(self):
+        assert AgentSpecies.CODING_HARNESS.value == "CODING_HARNESS"
+        assert AgentSpecies.DARK_FACTORY.value == "DARK_FACTORY"
+        assert AgentSpecies.ORCHESTRATION.value == "ORCHESTRATION"
+        assert AgentSpecies.AUTO_RESEARCH.value == "AUTO_RESEARCH"
+        assert len(AgentSpecies) == 4
 
 
 class TestInvariantCheck:

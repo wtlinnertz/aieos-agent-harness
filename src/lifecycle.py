@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.adapters.base import AgentAdapter
-from src.models import AgentRequest, AgentResponse, LifecycleEvent, RoutingStrategy
+from src.models import AgentRequest, AgentResponse, AgentSpecies, LifecycleEvent, RoutingStrategy
 
 
 @dataclass
@@ -16,6 +16,7 @@ class EventBinding:
     artifact_type: str  # "*" for all types
     adapter_names: list[str] = field(default_factory=list)
     strategy: RoutingStrategy = RoutingStrategy.FALLBACK
+    species: AgentSpecies = AgentSpecies.DARK_FACTORY
     config: dict = field(default_factory=dict)
 
 

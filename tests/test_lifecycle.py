@@ -6,7 +6,7 @@ import pytest
 
 from src.adapters.mock import MockAdapter
 from src.lifecycle import EventBinding, LifecycleBinder
-from src.models import AgentRequest, LifecycleEvent, RoutingStrategy
+from src.models import AgentRequest, AgentSpecies, LifecycleEvent, RoutingStrategy
 
 
 def _make_request(artifact_type: str = "PRD") -> AgentRequest:
@@ -169,3 +169,23 @@ class TestLifecycleExecute:
         request = _make_request("PRD")
         response = binder.execute(LifecycleEvent.PRE_GENERATION, request)
         assert response.content == "exact PRD"
+
+
+class TestBindingSpecies:
+    def test_binding_carries_species(self) -> None:
+        binding = EventBinding(
+            event=LifecycleEvent.PRE_GENERATION,
+            artifact_type="PRD",
+            adapter_names=["a"],
+            strategy=RoutingStrategy.FALLBACK,
+            species=AgentSpecies.CODING_HARNESS,
+        )
+        assert binding.species == AgentSpecies.CODING_HARNESS
+
+    def test_default_species_dark_factory(self) -> None:
+        binding = EventBinding(
+            event=LifecycleEvent.PRE_GENERATION,
+            artifact_type="PRD",
+            adapter_names=["a"],
+        )
+        assert binding.species == AgentSpecies.DARK_FACTORY

@@ -383,6 +383,66 @@ def cmd_costs(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0
 
 
+def cmd_research(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Run auto-research optimization against a target metric."""
+    from src.auto_research import AutoResearchEngine
+
+    adapters = _build_adapters(config)
+    if not adapters:
+        print("ERROR: No providers enabled. Check harness.yaml.", file=sys.stderr)
+        return 1
+
+    base_prompt_path = Path(args.base_prompt).resolve()
+    if not base_prompt_path.exists():
+        print(f"ERROR: Base prompt not found: {base_prompt_path}", file=sys.stderr)
+        return 1
+
+    prompt_content = base_prompt_path.read_text()
+    spec_content = ""
+    if args.base_spec:
+        spec_path = Path(args.base_spec).resolve()
+        if spec_path.exists():
+            spec_content = spec_path.read_text()
+
+    request = AgentRequest(
+        artifact_type="research",
+        event=LifecycleEvent.PRE_GENERATION,
+        spec_content=spec_content,
+        template_content="",
+        prompt_content=prompt_content,
+        upstream_artifacts={},
+        current_artifact=None,
+        correction_constraints=[],
+        metadata={"base_prompt": str(base_prompt_path)},
+    )
+
+    adapter_name, adapter = next(iter(adapters.items()))
+    print(f"Running auto-research: {args.metric} {args.target}")
+    print(f"Strategy: {args.strategy} | Max experiments: {args.max_experiments}")
+    print(f"Provider: {adapter_name}\n")
+
+    engine = AutoResearchEngine(
+        adapter=adapter,
+        metric_name=args.metric,
+        target=args.target,
+        max_experiments=args.max_experiments,
+    )
+
+    result = engine.optimize(request, variation_strategy=args.strategy)
+
+    print(f"Target met: {result.target_met}")
+    print(f"Experiments run: {result.experiments_run}")
+    print(f"Best value: {result.best_value}")
+    print(f"Total cost: ${result.total_cost_usd:.4f}")
+
+    if result.best_experiment:
+        print(f"\n--- Best Experiment ({result.best_experiment.id}) ---")
+        print(f"Metric: {result.best_experiment.metric_value}")
+        print(f"Description: {result.best_experiment.variation_description}")
+
+    return 0 if result.target_met else 1
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -432,6 +492,41 @@ def main(argv: list[str] | None = None) -> int:
     costs = subparsers.add_parser("costs", help="Show cost summary")
     costs.add_argument("--initiative", help="Filter by initiative")
 
+    # research
+    research = subparsers.add_parser(
+        "research", help="Auto-research: optimize a metric"
+    )
+    research.add_argument(
+        "--metric",
+        required=True,
+        help="Metric to optimize (completeness_score, cost_usd, latency_ms, token_efficiency, first_pass_rate)",
+    )
+    research.add_argument(
+        "--target",
+        required=True,
+        help="Target value (e.g., '>= 85', '<= 0.05')",
+    )
+    research.add_argument(
+        "--base-prompt",
+        required=True,
+        help="Path to base prompt file",
+    )
+    research.add_argument(
+        "--base-spec",
+        help="Path to spec file (optional context)",
+    )
+    research.add_argument(
+        "--strategy",
+        default="prompt_phrasing",
+        help="Variation strategy",
+    )
+    research.add_argument(
+        "--max-experiments",
+        type=int,
+        default=20,
+        help="Max experiments to run",
+    )
+
     args = parser.parse_args(argv)
     config = load_config(Path(args.config))
 
@@ -441,6 +536,7 @@ def main(argv: list[str] | None = None) -> int:
         "lifecycle": cmd_lifecycle,
         "health": cmd_health,
         "costs": cmd_costs,
+        "research": cmd_research,
     }
 
     handler = handlers.get(args.command)

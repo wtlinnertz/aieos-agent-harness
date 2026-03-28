@@ -30,6 +30,13 @@ class RoutingStrategy(Enum):
     COST_AWARE = "COST_AWARE"
 
 
+class AgentSpecies(Enum):
+    CODING_HARNESS = "CODING_HARNESS"
+    DARK_FACTORY = "DARK_FACTORY"
+    ORCHESTRATION = "ORCHESTRATION"
+    AUTO_RESEARCH = "AUTO_RESEARCH"
+
+
 class HealthStatus(Enum):
     OK = "OK"
     DEGRADED = "DEGRADED"
@@ -113,6 +120,7 @@ class InvocationRecord:
     validation_status: Optional[str]
     convergence_iteration: int
     error: Optional[str] = None
+    species: str = ""
 
 
 @dataclass

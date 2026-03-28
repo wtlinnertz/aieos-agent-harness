@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 
-from src.models import InvocationRecord, LifecycleEvent, RoutingStrategy
+from src.models import AgentSpecies, InvocationRecord, LifecycleEvent, RoutingStrategy
 
 
 def _record_to_dict(record: InvocationRecord) -> dict:
@@ -41,6 +41,7 @@ def _dict_to_record(d: dict) -> InvocationRecord:
         validation_status=d.get("validation_status"),
         convergence_iteration=d["convergence_iteration"],
         error=d.get("error"),
+        species=d.get("species", ""),
     )
 
 
@@ -226,3 +227,41 @@ class ObservabilityLayer:
             )
 
         return None
+
+    def species_summary(self) -> dict[str, dict]:
+        """Aggregate metrics by agent species.
+
+        Returns:
+            {species_name: {invocations, total_cost, avg_latency, failures}}
+        """
+        records = self.read_records()
+        buckets: dict[str, dict] = {}
+
+        for r in records:
+            species_key = r.species if r.species else "UNKNOWN"
+            if species_key not in buckets:
+                buckets[species_key] = {
+                    "invocations": 0,
+                    "total_cost": 0.0,
+                    "latencies": [],
+                    "failures": 0,
+                }
+            b = buckets[species_key]
+            b["invocations"] += 1
+            b["total_cost"] += r.cost_usd
+            b["latencies"].append(r.latency_ms)
+            if r.result == "failure" or r.error:
+                b["failures"] += 1
+
+        result: dict[str, dict] = {}
+        for species_key, data in buckets.items():
+            latencies = data["latencies"]
+            avg_latency = round(mean(latencies), 1) if latencies else 0.0
+            result[species_key] = {
+                "invocations": data["invocations"],
+                "total_cost": round(data["total_cost"], 6),
+                "avg_latency": avg_latency,
+                "failures": data["failures"],
+            }
+
+        return result

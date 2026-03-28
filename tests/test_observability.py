@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.models import InvocationRecord, LifecycleEvent, RoutingStrategy
+from src.models import AgentSpecies, InvocationRecord, LifecycleEvent, RoutingStrategy
 from src.observability import ObservabilityLayer
 
 
@@ -267,3 +267,40 @@ class TestDetectCostAnomaly:
         expensive_tdd = _make_record(artifact_type="TDD", cost_usd=1.00)
         result = obs.detect_cost_anomaly(expensive_tdd)
         assert result is None
+
+
+class TestSpeciesSummary:
+    """species_summary() aggregates metrics by agent species."""
+
+    def test_species_summary_aggregates(self, tmp_path: Path):
+        log = tmp_path / "metrics.jsonl"
+        obs = ObservabilityLayer(log)
+
+        # Record 3 invocations with different species
+        r1 = _make_record(provider="anthropic", cost_usd=0.10, latency_ms=1000.0)
+        r1.species = AgentSpecies.CODING_HARNESS.value
+        obs.record(r1)
+
+        r2 = _make_record(provider="anthropic", cost_usd=0.20, latency_ms=2000.0)
+        r2.species = AgentSpecies.DARK_FACTORY.value
+        obs.record(r2)
+
+        r3 = _make_record(
+            provider="openai", cost_usd=0.05, latency_ms=800.0, result="failure"
+        )
+        r3.species = AgentSpecies.CODING_HARNESS.value
+        obs.record(r3)
+
+        summary = obs.species_summary()
+
+        assert AgentSpecies.CODING_HARNESS.value in summary
+        ch = summary[AgentSpecies.CODING_HARNESS.value]
+        assert ch["invocations"] == 2
+        assert ch["total_cost"] == pytest.approx(0.15, abs=1e-6)
+        assert ch["avg_latency"] == pytest.approx(900.0, abs=0.1)
+        assert ch["failures"] == 1
+
+        df = summary[AgentSpecies.DARK_FACTORY.value]
+        assert df["invocations"] == 1
+        assert df["total_cost"] == pytest.approx(0.20, abs=1e-6)
+        assert df["failures"] == 0
