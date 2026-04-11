@@ -2,7 +2,7 @@
 
 A pluggable multi-agent orchestration engine for the AIEOS governance framework. The harness sits between AIEOS governance artifacts (Markdown specs, templates, prompts, validators) and AI providers, orchestrating artifact lifecycle events through configurable routing strategies while enforcing AIEOS structural invariants.
 
-## Quick Start
+## Getting started
 
 ```bash
 # Create and activate virtual environment
@@ -48,13 +48,13 @@ export OPENAI_API_KEY="your-key"
 
 See [docs/configuration.md](docs/configuration.md) for the full YAML schema reference.
 
-## Adding Providers
+## Adding providers
 
 The harness uses a Protocol-based adapter interface. Implement `invoke()`, `health()`, and `cost_estimate()` to add a new AI provider or tool.
 
 See [docs/adding-providers.md](docs/adding-providers.md) for a step-by-step guide.
 
-## AIEOS Invariants Enforced
+## AIEOS invariants enforced
 
 The harness programmatically enforces seven AIEOS structural invariants:
 
