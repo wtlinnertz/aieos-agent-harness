@@ -1,0 +1,84 @@
+# AIEOS Agent Harness Configuration
+# Copy to harness.yaml and customize for your environment.
+# API keys are NEVER stored here — use environment variables.
+
+# Path to the AIEOS governance framework root
+aieos_root: ../
+
+# Path to the initiative project (set per-run or via AIEOS_INITIATIVE_ROOT env var)
+initiative_root: null
+
+# Provider configuration
+# API keys: set ANTHROPIC_API_KEY, OPENAI_API_KEY as environment variables
+providers:
+  anthropic:
+    enabled: true
+    model: claude-sonnet-4-20250514
+    max_tokens: 8192
+  openai:
+    enabled: false
+    model: gpt-4o
+    max_tokens: 8192
+
+# Routing configuration
+routing:
+  default_strategy: fallback
+  consensus_threshold: 0.67
+  cost_tiers:
+    - provider: anthropic
+      model: claude-sonnet-4-20250514
+      tier: standard
+      cost_per_1k_input: 0.003
+      cost_per_1k_output: 0.015
+    - provider: anthropic
+      model: claude-opus-4-20250514
+      tier: premium
+      cost_per_1k_input: 0.015
+      cost_per_1k_output: 0.075
+    - provider: openai
+      model: gpt-4o
+      tier: standard
+      cost_per_1k_input: 0.005
+      cost_per_1k_output: 0.015
+
+# Lifecycle configuration
+lifecycle:
+  max_convergence_iterations: 3
+
+# Observability
+observability:
+  log_file: harness-metrics.jsonl
+  log_level: INFO
+
+# Artifact lifecycle event bindings
+# Maps lifecycle events + artifact types to agent invocations
+bindings:
+  # Example: architecture review with fallback routing (coding harness species)
+  # - event: post_generation
+  #   artifact_type: SAD
+  #   adapters: [anthropic, openai]
+  #   strategy: fallback
+  #   species: CODING_HARNESS
+
+  # Example: multi-provider consensus for security review (dark factory species)
+  # - event: post_generation
+  #   artifact_type: TM
+  #   adapters: [anthropic, openai]
+  #   strategy: parallel_consensus
+  #   species: DARK_FACTORY
+  #   config:
+  #     threshold: 0.67
+
+  # Example: orchestration species for cross-artifact coordination
+  # - event: post_generation
+  #   artifact_type: ORD
+  #   adapters: [anthropic]
+  #   strategy: pipeline
+  #   species: ORCHESTRATION
+
+  # Example: cost-aware routing for research tasks (auto-research species)
+  # - event: post_generation
+  #   artifact_type: "*"
+  #   adapters: [anthropic, openai]
+  #   strategy: cost_aware
+  #   species: AUTO_RESEARCH
