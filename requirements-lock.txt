@@ -1,8 +1,0 @@
-# Pinned dependencies for verified installs.
-# Generated from requirements.txt on 2026-03-26.
-# To update: pip install pip-tools && pip-compile --generate-hashes requirements.txt -o requirements-lock.txt
-# Note: hashes should be added when pip-tools is available.
-pyyaml==6.0.2
-pytest==8.3.5
-anthropic==0.40.0
-openai==1.50.0
