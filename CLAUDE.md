@@ -114,3 +114,49 @@ Next review: 2026-06-26
 - Do not modify AIEOS governance files (specs, templates, prompts, validators)
 - Do not maintain state in memory — write to ER + Journal on disk
 - Do not add provider-specific logic to core modules — keep it in adapters
+
+---
+
+## Spec-Driven CI/CD — Agent Harness Context
+
+This repo is the multi-agent orchestration system bridging governance artifacts and AI providers.
+For spec-driven CI/CD, it owns the runtime capability substrate: registry, attestation verification,
+tool-using agent pattern, and structured event emission.
+
+### What lives here for CI/CD (M2 deliverables)
+
+- Capability registry (artifact-store-backed, in-memory index per process)
+- Attestation verification at registration time
+- Tool-using agent interface (agent-with-LLM and agent-without-LLM variants)
+- Structured run-log emission (stdout events: run.start, task.start, task.evidence, task.result, run.end)
+- Contract tests for all of the above
+
+### Implementation plan
+
+The full plan is at: `~/second-brain/AIEOS Spec-Driven CI-CD Implementation Plan.md`
+
+Read the M2 section before starting any task. The harness work depends on M1 artifacts
+being frozen in `aieos-governance-foundation` (contracts, conformance attestation schema).
+
+### Key design decisions
+
+- Registry is the artifact store's source of truth; in-memory index is a read-through cache.
+- Registration refuses adapters without a valid conformance attestation for current or within-grace contract version.
+- The registry lookup API returns an empty list when no adapter satisfies an action. It never silently falls back.
+- Structured events emit to stdout. The log forwarder is a separate follow-on; do not build it here.
+- Adapters are not skills. Adapters have contracts, conformance, attestation. Skills are agent-side LLM behavior.
+
+### Python conventions
+
+- Type hints on public functions.
+- `ruff` for linting. `mypy` if config exists.
+- `structlog` over `print`. Logging keys in snake_case.
+- Dependency injection for anything that touches the outside world.
+- Tests in AAA shape. One behavior per test. Name: `test_<unit>_<condition>_<expected>`.
+- 143 existing tests. Do not break them.
+
+### Three invariants (never violate)
+
+1. Separation of concerns.
+2. Freeze-before-promote.
+3. Validators judge, they don't help.
