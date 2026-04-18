@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aieos.dev/schemas/conformance-attestation.schema.json",
+  "title": "AIEOS conformance attestation payload",
+  "description": "Canonical payload of a conformance attestation — the claim that an adapter version has satisfied a specific capability contract version by running the corresponding conformance suite and passing. Produced by the M4 conformance test harness on pass; a fail produces a diagnostic report instead, never an attestation. The payload is wrapped and signed per the sign.attestation contract; the signed wrapper validates against findings/schemas/oci-signing-bundle.schema.json (this schema describes the unsigned content).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "subject",
+    "predicate",
+    "suite_run_id",
+    "result",
+    "signing_identity",
+    "timestamp"
+  ],
+  "properties": {
+    "subject": {
+      "description": "What the attestation is about — the adapter claiming conformance.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["adapter_id", "adapter_version"],
+      "properties": {
+        "adapter_id": {
+          "description": "Adapter identifier. Convention: adapter-<tool>-<action>.",
+          "type": "string",
+          "pattern": "^adapter-[a-z0-9][a-z0-9-]*$"
+        },
+        "adapter_version": {
+          "description": "Semantic version of the adapter being attested.",
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        }
+      }
+    },
+    "predicate": {
+      "description": "What is being claimed — conformance to a specific contract version.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract_id", "contract_version"],
+      "properties": {
+        "contract_id": {
+          "description": "Capability contract identifier — a taxonomy action.",
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*\\.[a-z][a-z0-9-]*$"
+        },
+        "contract_version": {
+          "description": "Semantic version of the contract the attestation was tested against.",
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        }
+      }
+    },
+    "suite_run_id": {
+      "description": "Unique identifier for the conformance suite run that produced this attestation. UUID or equivalent (minimum 16 characters).",
+      "type": "string",
+      "minLength": 16
+    },
+    "result": {
+      "description": "Conformance outcome. Only 'pass' is valid — failures never produce an attestation.",
+      "const": "pass"
+    },
+    "signing_identity": {
+      "description": "Identity that signed the wrapping bundle. Typically an OIDC subject URI (e.g., a GitHub Actions workflow identity) or a named key identifier.",
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "description": "Time the attestation was issued, ISO 8601 with timezone.",
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})$"
+    }
+  }
+}
