@@ -13,7 +13,7 @@ Exercises the six scenarios from the prompt plus a few targeted additions:
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -58,7 +58,10 @@ def _payload(
     return json.dumps(
         {
             "subject": {"adapter_id": adapter_id, "adapter_version": adapter_version},
-            "predicate": {"contract_id": contract_id, "contract_version": contract_version},
+            "predicate": {
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+            },
             "suite_run_id": suite_run_id,
             "result": result,
             "signing_identity": signing_identity,
@@ -101,6 +104,7 @@ def _make_verifier(
 
 
 # -------------------------------------------------------------- basic rejects
+
 
 def test_registration_rejects_missing_attestation():
     verifier = _make_verifier()
@@ -174,7 +178,9 @@ def test_registration_rejects_contract_id_not_in_capabilities():
 
 def test_registration_rejects_invalid_signature():
     """'Invalid signature' in v1 is modeled as an untrusted signing identity."""
-    payload = _payload(signing_identity="https://evil.example/workflows/steal.yml@refs/heads/main")
+    payload = _payload(
+        signing_identity="https://evil.example/workflows/steal.yml@refs/heads/main"
+    )
     fetcher = MemFetcher({"mem://untrusted": payload})
     verifier = _make_verifier(fetcher=fetcher)
     entry = _entry(attestation_ref="mem://untrusted")
@@ -186,6 +192,7 @@ def test_registration_rejects_invalid_signature():
 
 
 # ------------------------------------------------------- version / cutover
+
 
 def test_registration_accepts_current_version():
     payload = _payload(contract_version="1.0.0")
@@ -227,7 +234,10 @@ def test_registration_accepts_prior_version_before_cutover():
     outcome = verifier(entry)
 
     assert outcome.accepted is True
-    assert "before cutover" in outcome.diagnostic.lower() or "until cutover" in outcome.diagnostic.lower()
+    assert (
+        "before cutover" in outcome.diagnostic.lower()
+        or "until cutover" in outcome.diagnostic.lower()
+    )
 
 
 def test_registration_rejects_prior_version_after_cutover():
@@ -291,6 +301,7 @@ def test_registration_rejects_contract_without_registered_policy():
 
 # ----------------------------------------- end-to-end against registry wiring
 
+
 def test_registry_uses_real_verifier_and_accepts_current(artifact_store, tmp_path):
     """End-to-end: CapabilityRegistry + AttestationVerifier, current version path."""
     from src.cicd.registry import CapabilityRegistry
@@ -313,3 +324,118 @@ def test_registry_uses_real_verifier_and_accepts_current(artifact_store, tmp_pat
     found = registry.find_adapters("test.unit")
     assert len(found) == 1
     assert found[0].adapter_id == entry.adapter_id
+
+
+# ---- Track G: Sigstore bundle unwrapping -----------------------------------
+
+
+def test_unwrap_sigstore_bundle_extracts_predicate():
+    import base64 as b64
+    import json as _json
+    from src.cicd.attestation import unwrap_sigstore_bundle
+
+    statement = {
+        "_type": "https://in-toto.io/Statement/v1",
+        "predicateType": "https://aieos.dev/attestations/conformance/v1",
+        "subject": [{"name": "adapter-pytest-unit", "digest": {}}],
+        "predicate": {
+            "subject": {
+                "adapter_id": "adapter-pytest-unit",
+                "adapter_version": "1.0.0",
+            },
+            "predicate": {"contract_id": "test.unit", "contract_version": "1.0.0"},
+            "suite_run_id": "550e8400-e29b-41d4-a716-446655440000",
+            "result": "pass",
+            "signing_identity": "https://github.com/wtlinnertz/adapter-pytest-unit/.github/workflows/ci.yml@refs/heads/main",
+            "timestamp": "2026-04-25T12:00:00Z",
+        },
+    }
+    bundle = {
+        "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "verificationMaterial": {
+            "x509CertificateChain": {"certificates": []},
+            "tlogEntries": [],
+        },
+        "dsseEnvelope": {
+            "payload": b64.b64encode(_json.dumps(statement).encode()).decode(),
+            "payloadType": "application/vnd.in-toto+json",
+            "signatures": [{"sig": "MEUCIQ..."}],
+        },
+    }
+    bundle_bytes = _json.dumps(bundle).encode()
+
+    predicate_bytes = unwrap_sigstore_bundle(bundle_bytes)
+
+    parsed = _json.loads(predicate_bytes)
+    assert parsed["predicate"]["contract_id"] == "test.unit"
+    assert parsed["result"] == "pass"
+
+
+def test_unwrap_sigstore_bundle_rejects_wrong_media_type():
+    import json as _json
+    from src.cicd.attestation import BundleUnwrapError, unwrap_sigstore_bundle
+
+    bundle = {"mediaType": "application/wrong+json", "dsseEnvelope": {}}
+    with pytest.raises(BundleUnwrapError, match="mediaType"):
+        unwrap_sigstore_bundle(_json.dumps(bundle).encode())
+
+
+def test_unwrap_sigstore_bundle_rejects_missing_dsse():
+    import json as _json
+    from src.cicd.attestation import BundleUnwrapError, unwrap_sigstore_bundle
+
+    bundle = {
+        "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "messageSignature": {"signature": "x"},  # sign.artifact, not sign.attestation
+    }
+    with pytest.raises(BundleUnwrapError, match="dsseEnvelope"):
+        unwrap_sigstore_bundle(_json.dumps(bundle).encode())
+
+
+def test_unwrap_sigstore_bundle_rejects_invalid_json():
+    from src.cicd.attestation import BundleUnwrapError, unwrap_sigstore_bundle
+
+    with pytest.raises(BundleUnwrapError, match="not valid JSON"):
+        unwrap_sigstore_bundle(b"not-json")
+
+
+def test_bundle_unwrapping_fetcher_composes_with_inner_fetcher(tmp_path):
+    """End-to-end: a real bundle file resolved by file_uri_fetcher then
+    unwrapped to predicate bytes."""
+    import base64 as b64
+    import json as _json
+    from src.cicd.attestation import (
+        _file_uri_fetcher,
+        bundle_unwrapping_fetcher,
+    )
+
+    statement = {
+        "_type": "https://in-toto.io/Statement/v1",
+        "predicateType": "https://aieos.dev/attestations/conformance/v1",
+        "subject": [{"name": "x", "digest": {}}],
+        "predicate": {
+            "subject": {"adapter_id": "adapter-x", "adapter_version": "1.0.0"},
+            "predicate": {"contract_id": "test.unit", "contract_version": "1.0.0"},
+            "suite_run_id": "550e8400-e29b-41d4-a716-446655440000",
+            "result": "pass",
+            "signing_identity": "https://github.com/wtlinnertz/x@main",
+            "timestamp": "2026-04-25T12:00:00Z",
+        },
+    }
+    bundle = {
+        "mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json",
+        "verificationMaterial": {"tlogEntries": []},
+        "dsseEnvelope": {
+            "payload": b64.b64encode(_json.dumps(statement).encode()).decode(),
+            "payloadType": "application/vnd.in-toto+json",
+            "signatures": [{"sig": "x"}],
+        },
+    }
+    bundle_path = tmp_path / "bundle.sigstore.json"
+    bundle_path.write_text(_json.dumps(bundle))
+
+    fetcher = bundle_unwrapping_fetcher(_file_uri_fetcher)
+    predicate_bytes = fetcher(f"file://{bundle_path}")
+
+    parsed = _json.loads(predicate_bytes)
+    assert parsed["predicate"]["contract_id"] == "test.unit"

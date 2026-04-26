@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import io
 import json
-import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
-from src.cicd.agents import AdapterProtocol
 from src.cicd.artifact_store import FilesystemArtifactStore
 from src.cicd.attestation import AttestationVerifier, ContractRegistration
 from src.cicd.events import EmittingDeterministicAgent, RunEventEmitter
@@ -50,7 +48,10 @@ def _attestation_payload(
     return json.dumps(
         {
             "subject": {"adapter_id": adapter_id, "adapter_version": adapter_version},
-            "predicate": {"contract_id": contract_id, "contract_version": contract_version},
+            "predicate": {
+                "contract_id": contract_id,
+                "contract_version": contract_version,
+            },
             "suite_run_id": suite_run_id,
             "result": result,
             "signing_identity": signing_identity,
@@ -125,6 +126,7 @@ def _wire_registry(store, contract_version="1.0.0", prior=None, now=None):
 
 # ------------------------------------------------------- 1. round-trip
 
+
 def test_integration_registry_round_trip_with_real_verifier(tmp_path):
     store = FilesystemArtifactStore(tmp_path / "store")
     payload = _attestation_payload(
@@ -151,6 +153,7 @@ def test_integration_registry_round_trip_with_real_verifier(tmp_path):
 
 
 # ------------------------------------------------- 2. reject bad attestations
+
 
 def test_integration_verifier_rejects_schema_violation(tmp_path):
     store = FilesystemArtifactStore(tmp_path / "store")
@@ -213,6 +216,7 @@ def test_integration_verifier_rejects_wrong_contract_version(tmp_path):
 
 # ----------------------------------------------- 3. cutover grace (all three)
 
+
 def test_integration_cutover_before_after_and_at(tmp_path):
     """Register the SAME prior-version adapter against registries wired for
     three times: before cutover, at cutover, after cutover. First accepts;
@@ -253,6 +257,7 @@ def test_integration_cutover_before_after_and_at(tmp_path):
 
 
 # ----------------------------------------- 4. events during task execution
+
 
 def test_integration_task_execution_emits_expected_event_sequence(tmp_path):
     store = FilesystemArtifactStore(tmp_path / "store")
@@ -313,6 +318,7 @@ def test_integration_task_execution_emits_expected_event_sequence(tmp_path):
 
 # -------------------------------------- 5. end-to-end (registry + adapter + agent + events)
 
+
 def test_integration_end_to_end_task_flow(tmp_path, capsys):
     """Drive one task through the full stack and capture stdout-equivalent
     output via an in-memory StringIO. Asserts the TaskResult is consistent
@@ -363,5 +369,7 @@ def test_integration_end_to_end_task_flow(tmp_path, capsys):
     assert task_result_event["status"] == result.status.value
     assert task_result_event["adapter_id"] == result.adapter_id
     # Evidence events match the TaskResult's evidence list
-    evidence_events = [e["evidence_ref"] for e in events if e["type"] == "task.evidence"]
+    evidence_events = [
+        e["evidence_ref"] for e in events if e["type"] == "task.evidence"
+    ]
     assert evidence_events == result.evidence

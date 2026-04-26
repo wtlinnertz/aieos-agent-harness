@@ -123,7 +123,11 @@ class DeterministicAgent:
             )
 
         status = TaskStatus.COMPLETED if result.exit_code == 0 else TaskStatus.FAILED
-        error = None if status == TaskStatus.COMPLETED else f"adapter exit code {result.exit_code}"
+        error = (
+            None
+            if status == TaskStatus.COMPLETED
+            else f"adapter exit code {result.exit_code}"
+        )
         return TaskResult(
             action=action,
             adapter_id=entry.adapter_id,

@@ -124,6 +124,7 @@ class RunEventEmitter:
 
 # ------------------------------------------------------- agent integration
 
+
 class EmittingDeterministicAgent(DeterministicAgent):
     """DeterministicAgent that emits task-lifecycle events via a RunEventEmitter."""
 
@@ -158,7 +159,9 @@ class EmittingDeterministicAgent(DeterministicAgent):
             task_id=tid,
             action=action,
             adapter_id=result.adapter_id,
-            status=result.status.value if isinstance(result.status, TaskStatus) else str(result.status),
+            status=result.status.value
+            if isinstance(result.status, TaskStatus)
+            else str(result.status),
             findings_ref=findings_ref,
         )
         return result
@@ -202,13 +205,16 @@ class EmittingLLMAgent(LLMAgent):
             task_id=tid,
             action=action,
             adapter_id=result.adapter_id,
-            status=result.status.value if isinstance(result.status, TaskStatus) else str(result.status),
+            status=result.status.value
+            if isinstance(result.status, TaskStatus)
+            else str(result.status),
             findings_ref=_placeholder_findings_ref(result),
         )
         return result
 
 
 # ----------------------------------------------------------------- helpers
+
 
 def _synth_task_id(action: str) -> str:
     """Deterministic-ish task_id when the orchestrator doesn't supply one."""

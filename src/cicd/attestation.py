@@ -14,6 +14,8 @@ responsible for plugging in the bundle-unwrapping fetcher in production.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -64,8 +66,14 @@ class ContractRegistration:
                 "and not a declared prior version",
             )
         if now < cutover:
-            return True, f"prior contract version {version} accepted until cutover at {cutover.isoformat()}"
-        return False, f"prior contract version {version} rejected — cutover at {cutover.isoformat()} has passed"
+            return (
+                True,
+                f"prior contract version {version} accepted until cutover at {cutover.isoformat()}",
+            )
+        return (
+            False,
+            f"prior contract version {version} rejected — cutover at {cutover.isoformat()} has passed",
+        )
 
 
 class AttestationVerifier:
@@ -114,10 +122,13 @@ class AttestationVerifier:
             payload = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             return RegistrationOutcome(
-                accepted=False, diagnostic=f"attestation payload is not valid JSON: {exc}"
+                accepted=False,
+                diagnostic=f"attestation payload is not valid JSON: {exc}",
             )
 
-        schema_errors = sorted(self._validator.iter_errors(payload), key=lambda e: list(e.path))
+        schema_errors = sorted(
+            self._validator.iter_errors(payload), key=lambda e: list(e.path)
+        )
         if schema_errors:
             msg = schema_errors[0].message
             path = "/".join(str(p) for p in schema_errors[0].path) or "<root>"
@@ -202,3 +213,110 @@ def _file_uri_fetcher(ref: str) -> bytes:
     path = ref[len("file://") :]
     with open(path, "rb") as f:
         return f.read()
+
+
+SIGSTORE_BUNDLE_MEDIA_TYPE = "application/vnd.dev.sigstore.bundle.v0.3+json"
+INTOTO_PREDICATE_TYPE_PREFIX = "https://aieos.dev/attestations/"
+
+
+class BundleUnwrapError(Exception):
+    """The bytes do not look like an unwrappable Sigstore bundle."""
+
+
+def unwrap_sigstore_bundle(bundle_bytes: bytes) -> bytes:
+    """Extract the conformance-attestation predicate from a Sigstore bundle.
+
+    Real conformance attestations produced by adapter CI are signed Sigstore
+    bundles wrapping a DSSE envelope wrapping an in-toto Statement. The
+    canonical layered shape:
+
+        Sigstore bundle
+            mediaType: application/vnd.dev.sigstore.bundle.v0.3+json
+            verificationMaterial: {...}
+            dsseEnvelope:
+                payload: <base64-encoded JSON of in-toto Statement>
+                payloadType: application/vnd.in-toto+json
+                signatures: [...]
+
+    The in-toto Statement:
+        _type: https://in-toto.io/Statement/v1
+        predicateType: https://aieos.dev/attestations/conformance/v1
+        subject: [...]
+        predicate:
+            <-- THIS object is what the schema expects -->
+
+    This function returns the encoded predicate JSON as bytes so the existing
+    AttestationVerifier (which calls json.loads on the fetched bytes) can
+    consume it without code change. Operators wire this in production by
+    constructing AttestationVerifier with attestation_fetcher=
+    bundle_unwrapping_fetcher(<inner-bytes-fetcher>).
+
+    Raises BundleUnwrapError if the input doesn't match the expected
+    nested shape; callers can catch and fall through to the v1 raw-payload
+    path when in doubt.
+    """
+    try:
+        bundle = json.loads(bundle_bytes)
+    except json.JSONDecodeError as exc:
+        raise BundleUnwrapError(f"bundle is not valid JSON: {exc}") from exc
+
+    media = bundle.get("mediaType", "")
+    if media != SIGSTORE_BUNDLE_MEDIA_TYPE:
+        raise BundleUnwrapError(
+            f"unexpected mediaType {media!r}; expected {SIGSTORE_BUNDLE_MEDIA_TYPE}"
+        )
+
+    dsse = bundle.get("dsseEnvelope")
+    if not dsse:
+        raise BundleUnwrapError(
+            "bundle has no dsseEnvelope; sign.attestation contracts produce "
+            "DSSE-wrapped payloads, sign.artifact produces messageSignature. "
+            "Conformance attestations live under dsseEnvelope."
+        )
+    payload_b64 = dsse.get("payload")
+    if not payload_b64:
+        raise BundleUnwrapError("dsseEnvelope has no payload")
+    try:
+        statement_bytes = base64.b64decode(payload_b64)
+    except (binascii.Error, ValueError) as exc:
+        raise BundleUnwrapError(
+            f"dsseEnvelope.payload is not valid base64: {exc}"
+        ) from exc
+
+    try:
+        statement = json.loads(statement_bytes)
+    except json.JSONDecodeError as exc:
+        raise BundleUnwrapError(
+            f"dsseEnvelope payload does not decode to valid JSON: {exc}"
+        ) from exc
+
+    predicate = statement.get("predicate")
+    if predicate is None:
+        raise BundleUnwrapError("in-toto Statement has no predicate")
+
+    return json.dumps(predicate).encode("utf-8")
+
+
+def bundle_unwrapping_fetcher(
+    inner_fetcher: AttestationFetcher,
+) -> AttestationFetcher:
+    """Wrap an inner fetcher (which returns bundle bytes) with bundle-unwrapping.
+
+    Use this in production when the attestation_ref points at a signed
+    Sigstore bundle rather than the raw payload. Example:
+
+        verifier = AttestationVerifier(
+            ...,
+            attestation_fetcher=bundle_unwrapping_fetcher(_file_uri_fetcher),
+        )
+
+    The inner fetcher is responsible for resolving the ref to bundle bytes
+    (file://, https://, artifact-store:// — your choice). The wrapper then
+    unwraps the bundle to the predicate JSON the verifier consumes.
+    """
+
+    def fetch(ref: str) -> bytes:
+        bundle_bytes = inner_fetcher(ref)
+        return unwrap_sigstore_bundle(bundle_bytes)
+
+    return fetch

@@ -75,7 +75,9 @@ class RegistryEntry:
             attestation_ref=data["attestation_ref"],
             registered_at=datetime.fromisoformat(data["registered_at"]),
             context=dict(data.get("context", {})),
-            health_status=HealthStatus(data.get("health_status", HealthStatus.HEALTHY.value)),
+            health_status=HealthStatus(
+                data.get("health_status", HealthStatus.HEALTHY.value)
+            ),
         )
 
 

@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from src.cicd.agents import (
-    AdapterProtocol,
     Decision,
     DeterministicAgent,
     Judgment,
@@ -85,6 +84,7 @@ def _register(registry: CapabilityRegistry, adapter_id: str, action: str) -> Non
 
 # --------------------------------------------------------- DeterministicAgent
 
+
 def test_deterministic_agent_happy_path(artifact_store):
     registry = CapabilityRegistry(store=artifact_store)
     _register(registry, "adapter-pytest-unit", "test.unit")
@@ -120,7 +120,9 @@ def test_deterministic_agent_ambiguous_resolution_fails(artifact_store):
     registry = CapabilityRegistry(store=artifact_store)
     _register(registry, "adapter-a", "test.unit")
     _register(registry, "adapter-b", "test.unit")
-    agent = DeterministicAgent(registry, {"adapter-a": _CannedAdapter(), "adapter-b": _CannedAdapter()})
+    agent = DeterministicAgent(
+        registry, {"adapter-a": _CannedAdapter(), "adapter-b": _CannedAdapter()}
+    )
 
     result = agent.receive_task("test.unit", {}, {})
 
@@ -154,9 +156,7 @@ def test_deterministic_agent_adapter_exception_becomes_failed_result(artifact_st
 def test_deterministic_agent_nonzero_exit_code_is_failed(artifact_store):
     registry = CapabilityRegistry(store=artifact_store)
     _register(registry, "adapter-flaky", "test.unit")
-    agent = DeterministicAgent(
-        registry, {"adapter-flaky": _CannedAdapter(exit_code=7)}
-    )
+    agent = DeterministicAgent(registry, {"adapter-flaky": _CannedAdapter(exit_code=7)})
 
     result = agent.receive_task("test.unit", {}, {})
 
@@ -181,7 +181,10 @@ def test_deterministic_agent_context_filters_lookup(artifact_store):
         assert registry.register_adapter(entry).accepted
     agent = DeterministicAgent(
         registry,
-        adapter_instances={"adapter-ci": _CannedAdapter(), "adapter-prod": _CannedAdapter()},
+        adapter_instances={
+            "adapter-ci": _CannedAdapter(),
+            "adapter-prod": _CannedAdapter(),
+        },
         context={"environment": "prod"},
     )
 
@@ -192,6 +195,7 @@ def test_deterministic_agent_context_filters_lookup(artifact_store):
 
 
 # ------------------------------------------------------------------ LLMAgent
+
 
 def test_llm_agent_retries_until_success(artifact_store):
     registry = CapabilityRegistry(store=artifact_store)

@@ -7,7 +7,6 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from src.cicd.agents import AdapterProtocol
 from src.cicd.events import (
     EmittingDeterministicAgent,
     EmittingLLMAgent,
@@ -52,6 +51,7 @@ class _Adapter:
 
 # --------------------------------------------------------- emitter shapes
 
+
 def test_run_start_event_shape():
     buf = io.StringIO()
     emitter = RunEventEmitter(
@@ -95,7 +95,9 @@ def test_event_carries_run_id_and_task_id():
     buf = io.StringIO()
     emitter = RunEventEmitter(run_id="run-abc", out=buf, clock=lambda: FIXED_NOW)
 
-    emitter.task_start(task_id="t-1", action="test.unit", adapter_id="adapter-pytest-unit")
+    emitter.task_start(
+        task_id="t-1", action="test.unit", adapter_id="adapter-pytest-unit"
+    )
     emitter.task_evidence(task_id="t-1", evidence_ref="junit-1")
     emitter.task_result(
         task_id="t-1",
@@ -148,6 +150,7 @@ def test_emitter_rejects_empty_run_id():
 
 # ----------------------------------------------------- agent integration
 
+
 def test_task_lifecycle_events_emitted_in_order(artifact_store):
     buf = io.StringIO()
     registry = CapabilityRegistry(store=artifact_store)
@@ -159,7 +162,9 @@ def test_task_lifecycle_events_emitted_in_order(artifact_store):
         emitter=emitter,
     )
 
-    result = agent.receive_task("test.unit", {}, {"source_dir": "./src"}, task_id="t-42")
+    result = agent.receive_task(
+        "test.unit", {}, {"source_dir": "./src"}, task_id="t-42"
+    )
 
     assert result.status == TaskStatus.COMPLETED
 

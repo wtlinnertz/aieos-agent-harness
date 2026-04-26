@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from src.cicd.artifact_store import FilesystemArtifactStore
 from src.cicd.models import HealthStatus, RegistrationOutcome, RegistryEntry
 from src.cicd.registry import CapabilityRegistry
 
@@ -92,7 +91,9 @@ def test_registry_index_rebuilds_from_artifact_store(artifact_store, sample_entr
 
 def test_registration_rejected_never_persists(artifact_store, sample_entry):
     """Stubbing the verifier to reject keeps the store and index empty."""
-    registry = CapabilityRegistry(store=artifact_store, attestation_verifier=_always_reject)
+    registry = CapabilityRegistry(
+        store=artifact_store, attestation_verifier=_always_reject
+    )
 
     outcome = registry.register_adapter(sample_entry)
 
