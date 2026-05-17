@@ -2,7 +2,7 @@
 
 This guide walks through implementing a new adapter for the AIEOS Agent Harness.
 
-## Step 1: Create the Adapter File
+## Step 1: create the adapter file
 
 Create a new file in `src/adapters/`:
 
@@ -10,20 +10,20 @@ Create a new file in `src/adapters/`:
 src/adapters/your_provider.py
 ```
 
-## Step 2: Implement the AgentAdapter Protocol
+## Step 2: implement the agentAdapter protocol
 
 Your adapter must implement three methods defined in `src/adapters/base.py`:
 
-- `invoke(request: AgentRequest) -> AgentResponse` -- send a request to the provider and return the response
-- `health() -> HealthStatus` -- return the current provider health status
-- `cost_estimate(request: AgentRequest) -> float` -- estimate the cost in USD for a given request
+- `invoke(request: AgentRequest) -> AgentResponse`: send a request to the provider and return the response
+- `health() -> HealthStatus`: return the current provider health status
+- `cost_estimate(request: AgentRequest) -> float`: estimate the cost in USD for a given request
 
 Plus two read-only properties:
 
-- `provider_name: str` -- unique identifier for this provider
-- `model_name: str` -- model identifier
+- `provider_name: str`: unique identifier for this provider
+- `model_name: str`: model identifier
 
-## Step 3: Minimal Example Adapter
+## Step 3: minimal example adapter
 
 ```python
 """Example adapter for the AIEOS Agent Harness."""
@@ -87,7 +87,7 @@ class ExampleAdapter:
         raise NotImplementedError("Wire up your provider API here")
 ```
 
-## Step 4: Add Provider Config to harness.yaml
+## Step 4: add provider config to harness.yaml
 
 Add a section under `providers`:
 
@@ -105,7 +105,7 @@ Set the API key as an environment variable:
 export EXAMPLE_API_KEY="your-key-here"
 ```
 
-## Step 5: Test with a Mock Request
+## Step 5: test with a mock request
 
 Write a quick integration test to verify your adapter works:
 
@@ -139,7 +139,7 @@ def test_example_adapter_invoke():
 
 Mark the test with `@pytest.mark.slow` so it only runs when `--run-slow` is passed.
 
-## Step 6: Checklist
+## Step 6: checklist
 
 Before merging your adapter, verify:
 

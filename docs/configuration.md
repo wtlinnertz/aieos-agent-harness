@@ -1,12 +1,12 @@
 # Configuration Reference
 
-## Configuration File
+## Configuration file
 
 The harness reads `harness.yaml` from the project root. Copy `harness.yaml.example` to `harness.yaml` and customize.
 
-## YAML Schema
+## YAML schema
 
-### Top-Level Keys
+### Top-Level keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -18,7 +18,7 @@ The harness reads `harness.yaml` from the project root. Copy `harness.yaml.examp
 | `observability_log` | string | `harness-metrics.jsonl` | Path to the JSONL metrics log file |
 | `bindings` | list | `[]` | Lifecycle event-to-adapter bindings (see below) |
 
-### Provider Configuration
+### Provider configuration
 
 Each key under `providers` is a provider name. Values:
 
@@ -42,7 +42,7 @@ providers:
     max_tokens: 8192
 ```
 
-### Routing Configuration
+### Routing configuration
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -50,7 +50,7 @@ providers:
 | `consensus_threshold` | float | `0.67` | Fraction of providers that must agree for parallel consensus to succeed |
 | `cost_tiers` | list | `[]` | Cost tier definitions for cost-aware routing |
 
-#### Cost Tier Entry
+#### Cost tier entry
 
 | Key | Type | Description |
 |-----|------|-------------|
@@ -79,7 +79,7 @@ routing:
       cost_per_1k_output: 0.075
 ```
 
-### Binding Configuration
+### Binding configuration
 
 Each entry in the `bindings` list maps a lifecycle event to one or more adapters.
 
@@ -91,7 +91,7 @@ Each entry in the `bindings` list maps a lifecycle event to one or more adapters
 | `strategy` | string | no | Routing strategy override for this binding (defaults to `routing.default_strategy`) |
 | `config` | object | no | Strategy-specific configuration (e.g., `threshold` for consensus) |
 
-#### Binding Examples
+#### Binding examples
 
 **Fallback routing** (try Anthropic, fall back to OpenAI):
 
@@ -145,7 +145,7 @@ bindings:
     strategy: fallback
 ```
 
-## Environment Variables
+## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
@@ -154,9 +154,9 @@ bindings:
 | `AIEOS_ROOT` | No | Overrides `aieos_root` from YAML when set |
 | `AIEOS_INITIATIVE_ROOT` | No | Overrides `initiative_root` from YAML when set |
 
-Environment variables always take precedence over YAML values for paths. API keys are never stored in YAML -- they are read exclusively from environment variables.
+Environment variables always take precedence over YAML values for paths. API keys are never stored in YAML: they are read exclusively from environment variables.
 
-## Full Example
+## Full example
 
 ```yaml
 aieos_root: ../

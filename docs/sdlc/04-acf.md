@@ -1,6 +1,6 @@
 # Architecture Context (ACF) — AIEOS Agent Harness
 
-## Document Control
+## Document control
 
 | Field | Value |
 |-------|-------|
@@ -18,7 +18,7 @@
 
 ---
 
-## Runtime and Language
+## Runtime and language
 
 - **Runtime environment:** Python 3.11+
 - **Language:** Python (standard typing, dataclasses, enums — no strict mode equivalent beyond type annotations)
@@ -42,7 +42,7 @@
 
 ---
 
-## Configuration and Secrets
+## Configuration and secrets
 
 - **Secrets management:** API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY) are read exclusively from environment variables. The YAML configuration file must never contain API keys or secrets (PRD C-1, FR-42).
 - **Non-secret configuration:** `harness.yaml` — contains provider settings (model names, max tokens, enabled flags), routing strategy, lifecycle bindings, convergence limits, and observability log path. Loaded by `src/config.py` via `yaml.safe_load`.
@@ -51,18 +51,18 @@
 
 ---
 
-## State and Data
+## State and data
 
 - **Where state lives:** On disk as Markdown and JSONL files. No in-memory state persistence across invocations.
   - **ER state block:** `| Field | Value |` table in section 1b of Engagement Record Markdown files. Read via regex parsing, written via in-place regex replacement (`src/state.py`).
-  - **Sherpa Journal:** Markdown file with `### entry_type -- timestamp` sections containing field/value tables. Append-only writes, parsed on read (`src/state.py`).
+  - **Sherpa Journal:** Markdown file with `### entry_type: timestamp` sections containing field/value tables. Append-only writes, parsed on read (`src/state.py`).
   - **Observability metrics:** JSONL file (`harness-metrics.jsonl` by default). Each line is a JSON `InvocationRecord`. Append-only writes, line-by-line reads for aggregation (`src/observability.py`).
 - **Data store technology:** Filesystem only. No SQL, NoSQL, or in-memory database (PRD NG-2, NFR-2).
 - **Data constraints:** No PII is stored. Metrics include cost, latency, token counts, and provider names — no artifact content in the metrics log.
 
 ---
 
-## Deployment and Distribution
+## Deployment and distribution
 
 - **Distribution method:** Python package installed via pip (`pip install -r requirements.txt` or verified `pip install -r requirements-lock.txt`). Not published to PyPI.
 - **Target environments:** Developer workstations running macOS or Linux with Python 3.11+.
@@ -73,7 +73,7 @@
 
 ---
 
-## Infrastructure and Platform
+## Infrastructure and platform
 
 - **Hosting:** Local developer workstation. No cloud deployment.
 - **Infrastructure as Code:** None. No infrastructure provisioning.
@@ -97,7 +97,7 @@
 
 ---
 
-## Integration Points
+## Integration points
 
 - **External services:**
   - Anthropic Messages API (Claude models) — via `src/adapters/anthropic.py`
@@ -109,9 +109,9 @@
 
 ---
 
-## Constraints and Principles
+## Constraints and principles
 
-### Architecture Principles (from CLAUDE.md and PRD)
+### Architecture principles (from cLAUDE.md and PRD)
 
 1. **Generation/validation separation:** Generation and validation are always separate `invoke()` calls with no shared session state. A single invocation must never both generate and validate an artifact (PRD C-2, FR-15).
 2. **Freeze-before-promote:** Upstream artifacts must be frozen before downstream generation begins. Enforced via a 30+ artifact type dependency map in `src/invariants.py` (PRD FR-16).
@@ -121,7 +121,7 @@
 6. **Tool-agnostic policy:** Provider-specific code lives exclusively in adapter implementations under `src/adapters/`. Core modules and governance files must not reference specific providers (PRD C-6, FR-20).
 7. **Disk-based state:** ER state blocks, journal entries, and metrics are persisted to files on disk. No in-memory-only state (PRD C-5, FR-21).
 
-### Hard Constraints from PRD
+### Hard constraints from PRD
 
 - C-1: No credentials in configuration files (env vars only)
 - C-2: No combined generation and validation (separate invocations)
@@ -130,13 +130,13 @@
 - C-5: No in-memory state (disk is system of record)
 - C-6: No provider-specific logic in core modules (adapters only)
 
-### Adapter Contract
+### Adapter contract
 
 All provider adapters implement the `AgentAdapter` Protocol (`src/adapters/base.py`): `provider_name` property, `model_name` property, `invoke(request) -> response`, `health() -> HealthStatus`, `cost_estimate(request) -> float`. SDK clients are lazily initialized on first use, not at construction time (PRD FR-31).
 
 ---
 
-## Completeness Checklist
+## Completeness checklist
 
 - [x] Runtime and language are specified (Python 3.11+)
 - [x] Key dependencies are listed (PyYAML, Anthropic SDK, OpenAI SDK — all with minimum versions)

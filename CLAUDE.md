@@ -2,21 +2,21 @@
 
 This file provides guidance to Claude Code when working with this repository.
 
-## What This Repository Is
+## What this repository is
 
 **AIEOS Agent Harness** (ECO-009) is a pluggable multi-agent orchestration engine for the AIEOS governance framework. It sits between AIEOS governance (Markdown specs, templates, prompts, validators) and AI providers, orchestrating artifact lifecycle events while enforcing AIEOS invariants.
 
-This is an **ecosystem software project**, not an AIEOS kit. It consumes AIEOS governance but lives outside the Markdown framework.
+This is an **system software project**, not an AIEOS kit. It consumes AIEOS governance but lives outside the Markdown framework.
 
-## Tech Stack
+## Tech stack
 
 - Python 3.11+
 - PyYAML for configuration
 - Anthropic SDK, OpenAI SDK for AI provider adapters
 - pytest for testing
-- No database — all state on disk (ER Markdown, Journal Markdown, JSONL metrics)
+- No database: all state on disk (ER Markdown, Journal Markdown, JSONL metrics)
 
-## Repository Structure
+## Repository structure
 
 ```
 src/
@@ -41,7 +41,7 @@ tests/
   integration/       # Integration tests (mock providers)
 ```
 
-## Running Tests
+## Running tests
 
 ```bash
 # Unit tests (no API keys needed)
@@ -60,17 +60,17 @@ pytest -v --run-slow
 pip install -r requirements-lock.txt
 ```
 
-## Core Concepts
+## Core concepts
 
-### Five Components
+### Five components
 
-1. **Lifecycle Binder** — Maps artifact lifecycle events (pre_generation, post_generation, etc.) to agent adapter invocations via YAML config
-2. **Routing Engine** — Four strategies: parallel_consensus, pipeline, fallback, cost_aware
-3. **Provider Adapter Layer** — Plugin interface (Protocol-based). Implementations: Anthropic, OpenAI, Tool, Mock
-4. **State Manager** — Reads/writes ER state block + Sherpa Journal on disk
-5. **Observability Layer** — Per-invocation cost, latency, token usage in JSONL
+1. Lifecycle Binder: maps artifact lifecycle events (pre_generation, post_generation, etc.) to agent adapter invocations via YAML config
+2. Routing Engine: four strategies: parallel_consensus, pipeline, fallback, cost_aware
+3. Provider Adapter Layer: plugin interface (Protocol-based). Implementations: Anthropic, OpenAI, Tool, Mock
+4. State Manager: reads and writes ER state block + Sherpa Journal on disk
+5. Observability Layer: per-invocation cost, latency, token usage in JSONL
 
-### Seven AIEOS Invariants Enforced
+### Seven AIEOS invariants enforced
 
 1. Generation and validation in separate invoke() calls
 2. Freeze-before-promote (check upstream status before downstream generation)
@@ -80,7 +80,7 @@ pip install -r requirements-lock.txt
 6. Tool-agnostic policy (provider details in adapters, not governance files)
 7. Disk-based state (ER + Journal files are system of record)
 
-## Eval Domain Ownership
+## Eval domain ownership
 
 | Domain | Owner | Expertise Basis | Review Cadence |
 |--------|-------|----------------|----------------|
@@ -93,7 +93,7 @@ pip install -r requirements-lock.txt
 Last reviewed: 2026-03-26
 Next review: 2026-06-26
 
-## Adding a New Provider
+## Adding a new provider
 
 1. Create `src/adapters/your_provider.py`
 2. Implement the `AgentAdapter` Protocol (invoke, health, cost_estimate)
@@ -106,7 +106,7 @@ Next review: 2026-06-26
 - Environment variables — API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY)
 - See `harness.yaml.example` for full schema
 
-## What Not To Do
+## What not to do
 
 - Do not store API keys in YAML files — use environment variables
 - Do not combine generation and validation in the same adapter session
@@ -117,13 +117,13 @@ Next review: 2026-06-26
 
 ---
 
-## Spec-Driven CI/CD — Agent Harness Context
+## Spec-Driven CI/CD — agent harness context
 
 This repo is the multi-agent orchestration system bridging governance artifacts and AI providers.
 For spec-driven CI/CD, it owns the runtime capability substrate: registry, attestation verification,
 tool-using agent pattern, and structured event emission.
 
-### What lives here for CI/CD (M2 deliverables)
+### What lives here for CI/CD (M2 outputs)
 
 - Capability registry (artifact-store-backed, in-memory index per process)
 - Attestation verification at registration time

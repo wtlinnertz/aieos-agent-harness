@@ -1,6 +1,6 @@
 # SAD: AIEOS Agent Harness
 
-## 0. Document Control
+## 0. document control
 - System Name: AIEOS Agent Harness
 - SAD ID: SAD-HARNESS-001
 - Author: Todd Linnertz (extracted from existing codebase by AI)
@@ -9,17 +9,17 @@
 - Governance Model Version: 1.3
 - Prompt Version: sad-prompt v1.0
 - Spec Version: sad-spec v1.1
-- Principles Version: N/A (no ACF or principles files exist for this ecosystem project; constraints are documented in PRD-HARNESS-001 Section 6)
+- Principles Version: N/A (no ACF or principles files exist for this system project; constraints are documented in PRD-HARNESS-001 Section 6)
 - Upstream Artifacts:
   - PRD ID / Link: PRD-HARNESS-001 (docs/sdlc/03-prd.md)
   - ACF ID / Link: N/A (retroactive governance; no ACF produced — PRD Section 6 Constraints serves as the guardrail source)
 - Related ADRs: None (architectural decisions are embedded in the codebase; documented in Section 5 below)
 
-**Note:** This SAD is retroactive. The system described below is fully implemented. All architectural descriptions reflect the actual codebase (14 source files, 166 tests). No ACF exists because this is an ecosystem software project governed retroactively; the PRD constraints (C-1 through C-6) serve as the guardrail equivalent.
+**Note:** This SAD is retroactive. The system described below is fully implemented. All architectural descriptions reflect the actual codebase (14 source files, 166 tests). No ACF exists because this is an system software project governed retroactively; the PRD constraints (C-1 through C-6) serve as the guardrail equivalent.
 
 ---
 
-## 1. Intent Summary
+## 1. intent summary
 
 From PRD-HARNESS-001:
 
@@ -37,9 +37,9 @@ From PRD-HARNESS-001:
 
 ---
 
-## 2. Scope and Non-Goals (Hard Boundary)
+## 2. scope and non-Goals (Hard boundary)
 
-### In Scope
+### In scope
 
 - Lifecycle event binding: mapping lifecycle events to adapter invocations via YAML-configured bindings
 - Multi-strategy routing engine with 4 strategies (fallback, pipeline, parallel_consensus, cost_aware) and circuit breaker protection
@@ -51,7 +51,7 @@ From PRD-HARNESS-001:
 - CLI with 5 subcommands (generate, validate, lifecycle, health, costs)
 - Configuration via YAML file with environment variable overrides for credentials and paths
 
-### Explicit Non-Goals
+### Explicit non-Goals
 
 - No graphical user interface (NG-1)
 - No database backend (NG-2)
@@ -70,7 +70,7 @@ Anything not listed as in-scope is out of scope by default.
 
 ---
 
-## 3. System Context (Black Box)
+## 3. system context (Black box)
 
 ### Responsibilities
 
@@ -84,7 +84,7 @@ Anything not listed as in-scope is out of scope by default.
 - Read and write Engagement Record state blocks and Sherpa Journal entries on disk
 - Present validation results for human freeze decision without auto-promoting artifacts
 
-### External Actors / Systems
+### External actors / systems
 
 - Upstream: AIEOS Governance Framework (filesystem) — provides spec, template, prompt, and validator Markdown files, read-only
 - Upstream: Initiative Project (filesystem) — provides SDLC artifacts, Engagement Record, and Sherpa Journal as Markdown files on disk
@@ -92,7 +92,7 @@ Anything not listed as in-scope is out of scope by default.
 - Downstream: External Tools (subprocess) — SAST scanners, linters, and validators invoked as local subprocesses
 - Users/Clients: Framework Operator (CLI) — invokes commands, reviews results, makes freeze decisions
 
-### Trust Boundaries
+### Trust boundaries
 
 - TB-1: Harness-to-Provider API boundary. API keys cross this boundary via HTTPS. Keys are read from environment variables; never stored in configuration files or passed through governance content.
 - TB-2: Harness-to-subprocess boundary. The Tool adapter invokes external commands via subprocess. The harness writes artifact content to temp files and passes file paths as arguments. Temp files are cleaned up in a finally block.
@@ -120,9 +120,9 @@ graph TB
 
 ---
 
-## 4. High-Level Architecture (White Box)
+## 4. high-Level architecture (White box)
 
-### Major Components
+### Major components
 
 **Config Loader** (`src/config.py`)
 - Responsibility: Load configuration from YAML file, apply environment variable overrides for AIEOS_ROOT, AIEOS_INITIATIVE_ROOT, read API keys exclusively from environment variables. Produce a typed HarnessConfig dataclass.
@@ -194,7 +194,7 @@ graph TB
 - Key interactions: Used exclusively in tests. Conforms to AgentAdapter protocol.
 - Dependencies: Data Models.
 
-### Layer Assignment
+### Layer assignment
 
 **Dependency Direction Rule:** Source code dependencies point inward only. Infrastructure depends on Application. Application depends on Domain. Domain depends on nothing external.
 
@@ -218,7 +218,7 @@ graph TB
 Components that span layers:
 - State Manager spans Application and Infrastructure: it defines application-level functions (read_er_state_block, read_frozen_artifacts) but performs infrastructure-level file I/O and regex parsing. The domain types it produces (ERStateBlock, ArtifactStatus) are pure domain objects. This is acceptable because there is no separate persistence abstraction layer; the Markdown file format is the system's only persistence mechanism by design (NG-2, C-5).
 
-### Communication Patterns
+### Communication patterns
 
 - Sync: All adapter invocations are synchronous request-response. No async I/O, no streaming, no message queues.
 - Thread parallelism: parallel_consensus strategy uses ThreadPoolExecutor to fan out to all adapters concurrently. All other strategies are single-threaded sequential.
@@ -301,21 +301,21 @@ graph LR
 
 ---
 
-## 5. Key Architectural Decisions
+## 5. key architectural decisions
 
 - **Decision: Protocol-based adapter interface instead of abstract base class.**
-  - Rationale: Python's Protocol (PEP 544) enables structural subtyping -- adapters satisfy the interface by implementing the required methods without inheriting from a base class. This reduces coupling and allows third-party adapters to conform without importing harness code. Supports the PRD requirement for a pluggable adapter layer (FR-27).
+  - Rationale: Python's Protocol (PEP 544) enables structural subtyping: adapters satisfy the interface by implementing the required methods without inheriting from a base class. This reduces coupling and allows third-party adapters to conform without importing harness code. Supports the PRD requirement for a pluggable adapter layer (FR-27).
   - Alternatives considered: Abstract base class (ABC) with abstract methods. Rejected because it requires inheritance, creating a tighter coupling between the harness and adapter implementations.
   - Consequences: Adapters are checked at runtime via @runtime_checkable. No compile-time enforcement. Adapter authors must know the protocol shape.
 
-- **Decision: No database -- all state on Markdown and JSONL files.**
+- **Decision: No database: all state on Markdown and JSONL files.**
   - Rationale: Directly supports PRD constraint C-5 (no in-memory state) and non-goal NG-2. The AIEOS framework is Markdown-native; the harness stores state in the same format as the artifacts it manages. ER state blocks are parsed from and written to existing ER Markdown files. Metrics use append-only JSONL for simplicity and auditability.
   - Alternatives considered: SQLite for metrics and state. Rejected because it adds a dependency that provides no benefit for single-operator, single-machine use. The append-only JSONL pattern is sufficient for the observability queries implemented.
   - Consequences: No concurrent write safety. Aggregation queries read the full log file on every call. Acceptable for single-operator usage per NG-5.
 
 - **Decision: YAML configuration with environment variable overrides for credentials.**
   - Rationale: YAML provides human-readable configuration for bindings, routing, and provider settings. API keys are read exclusively from environment variables (C-1) to prevent credential leakage into version-controlled files. AIEOS_ROOT and AIEOS_INITIATIVE_ROOT can override YAML values via environment variables for deployment flexibility.
-  - Alternatives considered: TOML configuration. Environment-only configuration. JSON configuration. YAML was chosen for readability and familiarity in the Python ecosystem.
+  - Alternatives considered: TOML configuration. Environment-only configuration. JSON configuration. YAML was chosen for readability and familiarity in the Python system.
   - Consequences: PyYAML is a runtime dependency. Configuration schema is not formally validated beyond what load_config() checks.
 
 - **Decision: ThreadPoolExecutor for parallel consensus, not asyncio.**
@@ -335,7 +335,7 @@ graph LR
 
 ---
 
-## 6. Cross-Cutting Concerns (Architectural Handling)
+## 6. cross-Cutting concerns (Architectural handling)
 
 ### Security
 
@@ -344,7 +344,7 @@ graph LR
 - No authentication or authorization within the harness itself. The system is single-operator on a single machine (NG-5). Access control is delegated to the operating system (file permissions, environment variable access).
 - The tool-agnostic policy invariant (Invariant 6) scans governance content for provider-specific terms to prevent information leakage from harness operations into governance files.
 
-### Reliability and Resilience
+### Reliability and resilience
 
 - Circuit breaker: Each provider has an independent CircuitBreaker instance that opens after a configurable number of consecutive failures (default 3) and auto-resets after a configurable timeout (default 60 seconds). When open, the provider is skipped in fallback and cost-aware routing, directing traffic to healthy alternatives.
 - Fallback routing: The fallback strategy tries adapters in configured order, skipping those with open circuit breakers, providing automatic failover when a provider is unavailable.
@@ -359,7 +359,7 @@ graph LR
 - Cost anomaly detection: Flags invocations whose cost exceeds 3x the rolling mean for the same artifact type within a configurable lookback window (default 24 hours).
 - Convergence ledger: Each convergence loop iteration records status, hard gate results, blocking issues, and completeness score to a ConvergenceState ledger for post-hoc analysis.
 
-### Performance and Scale
+### Performance and scale
 
 - Single-operator model: The system is designed for one operator on one machine (NG-5). No concurrent request handling, no horizontal scaling, no load balancing.
 - I/O-bound workload: The performance bottleneck is AI provider API latency (seconds to tens of seconds per invocation), not local computation. Local operations (config loading, file parsing, invariant checks) complete in milliseconds.
@@ -368,9 +368,9 @@ graph LR
 
 ---
 
-## 7. Data and Integration
+## 7. data and integration
 
-### Data Stores
+### Data stores
 
 **YAML Configuration File** (harness.yaml)
 - Ownership: Framework Operator (write authority). Config Loader (read-only consumer).
@@ -389,20 +389,20 @@ graph LR
 - Access pattern: Read via regex parsing of | Field | Value | table rows. Write via in-place regex replacement of field values.
 
 **Sherpa Journal** (Markdown file)
-- Ownership: State Manager (write authority -- append only). Framework Operator (read).
+- Ownership: State Manager (write authority: append only). Framework Operator (read).
 - Access pattern: Append-only writes of formatted Markdown sections with timestamp and field/value tables. Read via ### header splitting and table row parsing.
 
 **Observability Log** (harness-metrics.jsonl)
-- Ownership: Observability Layer (write authority -- append only).
+- Ownership: Observability Layer (write authority: append only).
 - Access pattern: Append one JSON line per invocation. Read all lines for aggregation queries (cost summary, health summary, anomaly detection). Full file scan on each read query.
 
-### Integration Patterns
+### Integration patterns
 
-- Filesystem-as-integration: The harness integrates with AIEOS governance files and initiative projects entirely through filesystem reads. Kit file resolution iterates over aieos-* directories under AIEOS_ROOT, looking for matching spec/template/prompt/validator files by naming convention. This is a loose coupling pattern -- the harness has no compile-time dependency on any specific kit.
+- Filesystem-as-integration: The harness integrates with AIEOS governance files and initiative projects entirely through filesystem reads. Kit file resolution iterates over aieos-* directories under AIEOS_ROOT, looking for matching spec/template/prompt/validator files by naming convention. This is a loose coupling pattern: the harness has no compile-time dependency on any specific kit.
 - Provider API integration: Each LLM adapter encapsulates a single provider's API. The adapter builds system and user messages from AgentRequest fields, calls the provider API synchronously, extracts response content and token usage, computes cost from pricing tables, and returns a normalized AgentResponse. Provider-specific details (message format, token counting, pricing) are fully contained within the adapter.
 - Subprocess integration: The Tool adapter integrates with external tools via subprocess.run(). The harness writes the current artifact to a temp file, passes the file path as the last command argument, and captures stdout as the response content.
 
-### Integration Contracts
+### Integration contracts
 
 | Integration Point | Service A | Service B | Expected Inputs | Expected Outputs | Error Modes | Versioning Strategy |
 |-------------------|-----------|-----------|----------------|-----------------|-------------|-------------------|
@@ -411,16 +411,16 @@ graph LR
 
 *Internal component interactions within the harness are exempt from this table.*
 
-### State Transitions
+### State transitions
 
-- **Artifact lifecycle states:** DRAFT -> VALIDATED -> FREEZE_PENDING -> FROZEN. The harness reads these states from Document Control tables in SDLC files. The harness never writes artifact status -- it only reads status to check frozen upstream dependencies (Invariant 2).
+- **Artifact lifecycle states:** DRAFT -> VALIDATED -> FREEZE_PENDING -> FROZEN. The harness reads these states from Document Control tables in SDLC files. The harness never writes artifact status: it only reads status to check frozen upstream dependencies (Invariant 2).
 - **ER state block transitions:** The State Manager reads and writes the 7 fields of the state block (Current Layer, Current Artifact, Current Step, Frozen Count, Next Action, Blocking On, Last Updated) in-place. Transitions are driven by CLI operations: when a generation or validation completes, the state block is updated to reflect the new position in the artifact lifecycle.
 - **Circuit breaker states:** CLOSED (normal) -> OPEN (after max consecutive failures) -> HALF-OPEN (after reset timeout expires, allows one retry) -> CLOSED (on success) or OPEN (on failure). Managed per provider by the CircuitBreaker class.
 - **Convergence states:** Each iteration transitions through: generate -> validate -> parse result -> (PASS: return) or (FAIL: check staleness/oscillation, build correction, re-generate). Terminal states: PASS (validation succeeded) or escalation needed (max iterations reached without PASS).
 
 ---
 
-## 8. Failure Modes and Recovery
+## 8. failure modes and recovery
 
 | Failure Mode | Impact | Detection | Mitigation |
 |-------------|--------|-----------|------------|
@@ -435,7 +435,7 @@ graph LR
 
 ---
 
-## 9. Quality Attribute Scenarios (QAS)
+## 9. quality attribute scenarios (QAS)
 
 | Quality Attribute | Scenario | Response | Measure |
 |------------------|----------|----------|---------|
@@ -449,9 +449,9 @@ graph LR
 
 ---
 
-## 10. Constraints and Guardrails (from ACF)
+## 10. constraints and guardrails (from ACF)
 
-No formal ACF exists for this ecosystem project. The following constraints from PRD-HARNESS-001 Section 6 serve as the guardrail equivalent. All are enforced in the implemented architecture:
+No formal ACF exists for this system project. The following constraints from PRD-HARNESS-001 Section 6 serve as the guardrail equivalent. All are enforced in the implemented architecture:
 
 - C-1: No credentials in configuration files. Enforced by Config Loader reading API keys exclusively from environment variables. The YAML parser ignores any key-like fields in the configuration file.
 - C-2: No combined generation and validation. Enforced by the Convergence Loop always issuing separate invoke() calls for generation and validation. Enforced programmatically by Invariant 1 (check_generation_validation_separation).
@@ -462,7 +462,7 @@ No formal ACF exists for this ecosystem project. The following constraints from 
 
 ---
 
-## 11. Deferred Decisions (Explicit)
+## 11. deferred decisions (Explicit)
 
 - **Per-artifact-type convergence limits:** Currently, max_convergence_iterations is a global setting (default 3). Per-artifact-type configuration was identified in PRD Q-1 but deferred because the global default has been sufficient for all tested artifact types. Target resolution: next enhancement cycle if operator feedback indicates artifact types with different convergence characteristics.
 
@@ -476,12 +476,12 @@ No formal ACF exists for this ecosystem project. The following constraints from 
 
 ---
 
-## 12. Risks and Assumptions
+## 12. risks and assumptions
 
 ### Risks
 
 - **R-1: Upstream dependency map drift.** The UPSTREAM_DEPENDENCIES map in src/invariants.py contains 30+ artifact type relationships that must match the AIEOS governance model. If the governance model adds new artifact types or changes dependency chains, the map becomes stale and freeze-before-promote checks may produce false positives or false negatives.
-  - Impact: Incorrect invariant enforcement -- either blocking valid operations or allowing invalid ones.
+  - Impact: Incorrect invariant enforcement: either blocking valid operations or allowing invalid ones.
   - Mitigation: The dependency map is a single dictionary in one file, making it straightforward to update. The 166-test suite includes tests for freeze-before-promote with specific artifact types. When new kits are added to the governance framework, the map must be updated as part of the kit integration.
 
 - **R-2: Full-file read for observability queries.** The ObservabilityLayer reads the entire JSONL log file on every aggregation query (cost_summary, provider_health_summary, detect_cost_anomaly). As the log grows over months of usage, query latency will increase linearly.
@@ -502,7 +502,7 @@ No formal ACF exists for this ecosystem project. The following constraints from 
 
 ---
 
-## 13. Freeze Declaration (when ready)
+## 13. freeze declaration (when ready)
 
 This SAD documents the existing AIEOS Agent Harness (ECO-009) architecture retroactively. All architectural descriptions reflect the implemented codebase.
 

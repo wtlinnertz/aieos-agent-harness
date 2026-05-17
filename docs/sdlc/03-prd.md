@@ -1,6 +1,6 @@
 # PRD: AIEOS Agent Harness
 
-## 0. Document Control
+## 0. document control
 
 - Product / Initiative Name: AIEOS Agent Harness (ECO-009)
 - PRD ID: PRD-HARNESS-001
@@ -15,23 +15,23 @@
   - KER: KER-HARNESS-001 (docs/sdlc/01-ker.md)
   - Product Brief: docs/sdlc/02-product-brief.md
   - Architecture: docs/architecture.md
-  - Ecosystem Roadmap: aieos-governance-foundation/docs/ecosystem-roadmap.md (ECO-009)
+  - system Roadmap: aieos-governance-foundation/docs/system-roadmap.md (ECO-009)
 
 **Note:** This PRD is retroactive. The system described below is fully implemented. All requirements use "SHALL" to document what the system does, not to plan future work. All facts are extracted from the actual codebase (16 source files, 166 tests).
 
 ---
 
-## 1. Problem Statement
+## 1. problem statement
 
-**What fails:** The AIEOS governance framework defines a structured artifact lifecycle -- specs, templates, prompts, and validators organized across 16 layers -- but provides no automation layer to orchestrate AI-assisted artifact production. Each artifact generation and validation cycle requires the operator to manually set up AI sessions, manually locate and load the correct spec/template/prompt/validator files for the artifact type, manually verify that upstream artifacts are frozen before generating downstream artifacts, manually track convergence iterations when validation fails, and manually record cost, latency, and token usage. As the framework grows (16 layers, 30+ artifact types, 5 initiative presets), manual orchestration becomes error-prone and unscalable.
+**What fails:** The AIEOS governance framework defines a structured artifact lifecycle: specs, templates, prompts, and validators organized across 16 layers: but provides no automation layer to orchestrate AI-assisted artifact production. Each artifact generation and validation cycle requires the operator to manually set up AI sessions, manually locate and load the correct spec/template/prompt/validator files for the artifact type, manually verify that upstream artifacts are frozen before generating downstream artifacts, manually track convergence iterations when validation fails, and manually record cost, latency, and token usage. As the framework grows (16 layers, 30+ artifact types, 5 initiative presets), manual orchestration becomes error-prone and unscalable.
 
 **Who is affected:** Framework operators who run AIEOS artifact lifecycle events. These are technical users who manage initiative progression through the AIEOS pipeline. Without automation, they bear the cognitive load of enforcing 7 structural invariants on every invocation, tracking convergence state across generate-validate cycles, and maintaining cost visibility across multiple AI providers.
 
-**Why now:** The AIEOS framework has grown to 16 layers with 12 kits built, 30+ governed artifact types, and multiple active initiatives (CONSOLE, SEARCH, HARNESS). Manual orchestration was acceptable for a single initiative but does not scale. The ecosystem roadmap (Phase 5) identified the Agent Harness as the integration layer between AIEOS governance and AI providers. The system was designed, built, and tested to address this gap. This PRD documents the existing solution retroactively under AIEOS governance.
+**Why now:** The AIEOS framework has grown to 16 layers with 12 kits built, 30+ governed artifact types, and multiple active initiatives (CONSOLE, SEARCH, HARNESS). Manual orchestration was acceptable for a single initiative but does not scale. The system roadmap (Phase 5) identified the Agent Harness as the integration layer between AIEOS governance and AI providers. The system was designed, built, and tested to address this gap. This PRD documents the existing solution retroactively under AIEOS governance.
 
 ---
 
-## 2. Goals (What "Success" Means)
+## 2. goals (What "Success" means)
 
 - **G-1: Automated artifact lifecycle orchestration.** The system orchestrates the full generate-validate cycle for any AIEOS artifact type via a single CLI command, eliminating manual session setup. Success: the `lifecycle` command produces a generated artifact and its validation result in one invocation.
 
@@ -45,7 +45,7 @@
 
 ---
 
-## 3. Non-Goals (Hard Exclusions)
+## 3. non-Goals (Hard exclusions)
 
 - **NG-1: No graphical user interface.** The system is CLI-only. No web dashboard, desktop application, or visual artifact editor.
 
@@ -63,7 +63,7 @@
 
 ---
 
-## 4. Users / Personas
+## 4. users / personas
 
 - **Framework Operator**
   - Primary behaviors: Runs artifact lifecycle events via CLI (generate, validate, lifecycle commands). Configures provider bindings and routing strategies via YAML. Reviews generated artifacts and validation results. Makes freeze decisions.
@@ -75,9 +75,9 @@
 
 ---
 
-## 5. Requirements
+## 5. requirements
 
-### 5.1 Functional Requirements
+### 5.1 functional requirements
 
 **Lifecycle Binding:**
 - FR-1: The system SHALL map lifecycle events (PRE_GENERATION, POST_GENERATION, PRE_VALIDATION, POST_VALIDATION, POST_FREEZE, ON_FAILURE) to adapter invocations via YAML-configured bindings.
@@ -140,10 +140,10 @@
 - FR-42: The system SHALL read API keys exclusively from environment variables (ANTHROPIC_API_KEY, OPENAI_API_KEY) and never from the YAML configuration file.
 - FR-43: The system SHALL support environment variable overrides for AIEOS_ROOT and AIEOS_INITIATIVE_ROOT.
 
-### 5.2 Non-Functional Requirements
+### 5.2 non-Functional requirements
 
 - NFR-1: The system SHALL run on Python 3.11 or later.
-- NFR-2: The system SHALL have no database dependency -- all persistent state is stored on disk as Markdown (ER, Journal) and JSONL (metrics).
+- NFR-2: The system SHALL have no database dependency: all persistent state is stored on disk as Markdown (ER, Journal) and JSONL (metrics).
 - NFR-3: The system SHALL execute all 166 tests (unit + integration) without requiring AI provider API keys, using mock adapters for provider interactions.
 - NFR-4: The system SHALL use the Anthropic SDK and OpenAI SDK as optional dependencies, imported lazily only when the corresponding adapter is used.
 - NFR-5: The system SHALL handle provider timeouts, API errors, and command-not-found conditions gracefully, returning structured error information rather than crashing.
@@ -152,7 +152,7 @@
 
 ---
 
-## 6. Constraints (Hard Guardrails)
+## 6. constraints (Hard guardrails)
 
 - **C-1: No credentials in configuration files.** API keys are read from environment variables only. The YAML configuration file must never contain API keys or secrets.
 - **C-2: No combined generation and validation.** Generation and validation must always be separate adapter invocations. A single invoke() call must not both generate and validate an artifact.
@@ -163,7 +163,7 @@
 
 ---
 
-## 7. Assumptions
+## 7. assumptions
 
 - **A-1:** The AIEOS governance framework is available at a filesystem path configurable via `aieos_root` in harness.yaml or the `AIEOS_ROOT` environment variable. If this assumption is false, no artifact type resolution can occur.
 - **A-2:** Initiative projects follow AIEOS directory conventions (`docs/sdlc/*.md` for artifacts, `docs/engagement/er-*.md` for Engagement Records). If this assumption is false, state management and frozen artifact scanning will not function.
@@ -173,19 +173,19 @@
 
 ---
 
-## 8. Out of Scope by Default
+## 8. out of scope by default
 
 Anything not explicitly included in Sections 1 and 5 is out of scope unless added via PRD change. The following items require explicit out-of-scope declaration due to risk of ambiguity:
 
 - **Multi-initiative orchestration.** The harness operates on one initiative at a time. Cross-initiative coordination, dependency tracking, or parallel initiative execution is out of scope.
-- **Prompt engineering or optimization.** The harness passes prompts through to providers as-is. It does not optimize, rewrite, or augment prompts.
-- **Artifact content quality beyond invariant checks.** The harness enforces structural invariants (format, required fields, no suggestion language). Semantic quality of generated content is outside the harness scope -- that is the validator's job.
+- **Prompt engineering or optimization.** The harness passes prompts through to providers as-is. It does not improve, rewrite, or augment prompts.
+- **Artifact content quality beyond invariant checks.** The harness enforces structural invariants (format, required fields, no suggestion language). Semantic quality of generated content is outside the harness scope: that is the validator's job.
 - **Provider billing or account management.** The harness estimates and records costs but does not manage provider accounts, billing alerts, or budget enforcement.
 - **Adapter hot-reload.** Adding or removing adapters requires restarting the harness. Runtime adapter registration is out of scope.
 
 ---
 
-## 9. Open Questions
+## 9. open questions
 
 No unresolved questions that would block architecture. The system is built and tested. The following are tracked for future consideration:
 
@@ -195,7 +195,7 @@ No unresolved questions that would block architecture. The system is built and t
 
 ---
 
-## 10. Acceptance / Success Criteria
+## 10. acceptance / success criteria
 
 - **AC-1:** All 166 tests pass (unit + integration) without requiring AI provider API keys. Verified by `pytest -v`.
 - **AC-2:** All 7 AIEOS invariants have dedicated check functions in `src/invariants.py` with unit test coverage for both passing and failing cases.
@@ -209,7 +209,7 @@ No unresolved questions that would block architecture. The system is built and t
 
 ---
 
-## 11. Freeze Declaration (when ready)
+## 11. freeze declaration (when ready)
 
 This PRD documents the existing AIEOS Agent Harness (ECO-009) retroactively. All requirements describe implemented functionality extracted from the codebase.
 

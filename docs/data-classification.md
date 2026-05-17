@@ -1,10 +1,10 @@
 # Data Classification
 
-## §1 Purpose
+## §1 purpose
 
 Classify all data flowing through agent context windows per AI SDLC Governance Foundation agent-security gate 9. This document identifies what data enters AI provider context, how it is retained, and what responsibilities fall on consuming projects.
 
-## §2 Data Sources
+## §2 data sources
 
 | Data Source | Classification | Description | Retention |
 |-------------|---------------|-------------|-----------|
@@ -15,13 +15,13 @@ Classify all data flowing through agent context windows per AI SDLC Governance F
 | Correction constraints | Internal | Blocking issues from validation (derived from initiative content) | None — per-invocation |
 | Agent metadata | Internal | Initiative name, artifact ID, human author | Persisted in JSONL logs |
 
-## §3 Agent Context Windows
+## §3 agent context Windows
 
 All data sent to AI providers is transient (per-invocation). The harness does not maintain persistent context between invocations. Each `invoke()` call constructs a fresh context from governance files and initiative artifacts.
 
 Provider data retention is governed by the provider's terms of service, not the harness. The harness has no mechanism to enforce deletion on provider infrastructure.
 
-## §4 Sensitive Data Handling
+## §4 sensitive data handling
 
 The harness does **NOT** strip, redact, or classify content automatically. If initiative artifacts contain PII, PHI, credentials, or other restricted data, the consuming project is responsible for:
 
@@ -31,7 +31,7 @@ The harness does **NOT** strip, redact, or classify content automatically. If in
 
 The harness treats all input content as opaque. It does not inspect, filter, or transform artifact content.
 
-## §5 Observability Data
+## §5 observability data
 
 JSONL logs contain invocation metadata only:
 
@@ -51,7 +51,7 @@ Logs do **NOT** contain:
 
 No PII appears in logs unless the artifact ID itself contains PII (unlikely per AIEOS naming convention: `{TYPE}-{INITIATIVE}-{NNN}`).
 
-## §6 Regulatory Applicability
+## §6 regulatory applicability
 
 No GDPR/CCPA/HIPAA data processing by default. The harness processes governance Markdown and initiative artifacts with no inherent regulated data.
 

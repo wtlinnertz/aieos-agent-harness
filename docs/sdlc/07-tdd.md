@@ -1,6 +1,6 @@
 # TDD: AIEOS Agent Harness
 
-## 0. Document Control
+## 0. document control
 - System / Component Name: AIEOS Agent Harness (ECO-009)
 - TDD ID: TDD-HARNESS-001
 - Author: Todd Linnertz (extracted from existing codebase by AI)
@@ -9,18 +9,18 @@
 - Governance Model Version: 1.3
 - Prompt Version: tdd-prompt v1.0
 - Spec Version: tdd-spec v1.0
-- Principles Version: N/A (no principles files exist for this ecosystem project; PRD-HARNESS-001 Section 6 Constraints serves as the guardrail source)
+- Principles Version: N/A (no principles files exist for this system project; PRD-HARNESS-001 Section 6 Constraints serves as the guardrail source)
 - Upstream Artifacts:
   - SAD ID / Link: SAD-HARNESS-001 (docs/sdlc/05-sad.md)
   - ACF ID / Link: ACF-HARNESS-001 (docs/sdlc/04-acf.md)
   - DCF ID / Link: N/A (retroactive governance; no DCF produced)
 - Related ADRs: None (architectural decisions embedded in SAD §5)
 
-**Note:** This TDD is retroactive. All technical design descriptions reflect the implemented codebase (16 source files, 166 tests). No DCF exists because this is an ecosystem software project governed retroactively.
+**Note:** This TDD is retroactive. All technical design descriptions reflect the implemented codebase (16 source files, 166 tests). No DCF exists because this is an system software project governed retroactively.
 
 ---
 
-## 1. Intent Summary
+## 1. intent summary
 
 From SAD-HARNESS-001:
 
@@ -37,9 +37,9 @@ From SAD-HARNESS-001:
 
 ---
 
-## 2. Scope and Non-Goals (Hard Boundary)
+## 2. scope and non-Goals (Hard boundary)
 
-### In Scope
+### In scope
 
 - Lifecycle event binding: map lifecycle events to adapter invocations via YAML-configured EventBinding dataclasses
 - Multi-strategy routing engine with 4 strategies and per-provider CircuitBreaker
@@ -51,7 +51,7 @@ From SAD-HARNESS-001:
 - CLI with 5 subcommands: generate, validate, lifecycle, health, costs
 - Configuration: YAML loading via yaml.safe_load with environment variable overrides for AIEOS_ROOT, AIEOS_INITIATIVE_ROOT, and API keys
 
-### Explicit Non-Goals (Must align with SAD)
+### Explicit non-Goals (Must align with SAD)
 
 - No graphical user interface (NG-1)
 - No database backend (NG-2)
@@ -68,9 +68,9 @@ From SAD-HARNESS-001:
 
 ---
 
-## 3. Technical Overview
+## 3. technical overview
 
-### Technology Stack
+### Technology stack
 
 - **Language:** Python 3.11+
 - **Module System:** Python packages (`src/` with `src/adapters/` subpackage)
@@ -111,14 +111,14 @@ From SAD-HARNESS-001:
 
 **Mock Adapter** (`src/adapters/mock.py`) — Test double. Preset responses per artifact type, configurable health status, configurable failure, call history tracking.
 
-### Key Data Flows
+### Key data flows
 
 1. **Generate flow:** CLI parses args → `load_config()` → `_build_adapters()` → `_resolve_kit_files()` scans `aieos-*` dirs → `_collect_upstream_artifacts()` scans `docs/sdlc/*.md` → builds `AgentRequest` → `adapter.invoke()` → prints `AgentResponse`
 2. **Lifecycle flow:** Generate flow + build validation request with `current_artifact = gen_response.content` → separate `adapter.invoke()` → print validation result → present for human freeze
 3. **Convergence flow:** `ConvergenceLoop.run()` iterates: generate → validate → parse JSON → if FAIL: detect staleness/oscillation → `_build_correction_request()` → re-generate → repeat until PASS or max_iterations
 4. **Routing flow:** `RoutingEngine.route()` dispatches to strategy method → strategy invokes adapter(s) with circuit breaker checks → returns `AgentResponse`
 
-### Layer Assignment (from SAD §4)
+### Layer assignment (from SAD §4)
 
 | Component | Layer | Language/Framework | Dependency Constraints |
 |-----------|-------|--------------------|----------------------|
@@ -141,9 +141,9 @@ From SAD-HARNESS-001:
 
 ---
 
-## 4. Interfaces and Contracts (Hard)
+## 4. interfaces and contracts (Hard)
 
-### 4.1 AgentAdapter Protocol (`src/adapters/base.py`)
+### 4.1 agentAdapter protocol (`src/adapters/base.py`)
 
 **SAD Component:** Adapter Protocol
 
@@ -178,7 +178,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.2 AnthropicAdapter (`src/adapters/anthropic.py`)
+### 4.2 anthropicAdapter (`src/adapters/anthropic.py`)
 
 **SAD Component:** Anthropic Adapter
 
@@ -218,7 +218,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.3 OpenAIAdapter (`src/adapters/openai.py`)
+### 4.3 openAIAdapter (`src/adapters/openai.py`)
 
 **SAD Component:** OpenAI Adapter
 
@@ -245,7 +245,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.4 ToolAdapter (`src/adapters/tool.py`)
+### 4.4 toolAdapter (`src/adapters/tool.py`)
 
 **SAD Component:** Tool Adapter
 
@@ -270,7 +270,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.5 MockAdapter (`src/adapters/mock.py`)
+### 4.5 mockAdapter (`src/adapters/mock.py`)
 
 **SAD Component:** Mock Adapter
 
@@ -289,7 +289,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.6 LifecycleBinder (`src/lifecycle.py`)
+### 4.6 lifecycleBinder (`src/lifecycle.py`)
 
 **SAD Component:** Lifecycle Binder
 
@@ -312,7 +312,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.7 EventBinding Dataclass (`src/lifecycle.py`)
+### 4.7 eventBinding dataclass (`src/lifecycle.py`)
 
 - `event: LifecycleEvent` — which lifecycle event this binding handles
 - `artifact_type: str` — `"*"` for all types, or specific type (e.g., `"SAD"`)
@@ -322,7 +322,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.8 CircuitBreaker (`src/routing.py`)
+### 4.8 circuitBreaker (`src/routing.py`)
 
 **SAD Component:** Routing Engine (circuit breaker subcomponent)
 
@@ -337,7 +337,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.9 RoutingEngine (`src/routing.py`)
+### 4.9 routingEngine (`src/routing.py`)
 
 **SAD Component:** Routing Engine
 
@@ -389,7 +389,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.10 ConvergenceLoop (`src/convergence.py`)
+### 4.10 convergenceLoop (`src/convergence.py`)
 
 **SAD Component:** Convergence Loop
 
@@ -452,7 +452,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.15 State Manager Functions (`src/state.py`)
+### 4.15 state manager functions (`src/state.py`)
 
 **SAD Component:** State Manager
 
@@ -476,7 +476,7 @@ class AgentAdapter(Protocol):
 
 **`append_journal_entry(journal_path: Path, entry_type: str, fields: dict) -> None`**
 - Generates UTC timestamp: `datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")`
-- Writes formatted Markdown section: `### {entry_type} -- {timestamp}` followed by `| Field | Value |` table with field/value rows
+- Writes formatted Markdown section: `### {entry_type}: {timestamp}` followed by `| Field | Value |` table with field/value rows
 - Opens file in append mode (`"a"`)
 
 **`read_journal_entries(journal_path: Path) -> list[dict]`**
@@ -494,7 +494,7 @@ class AgentAdapter(Protocol):
 
 ---
 
-### 4.16 Invariant Check Functions (`src/invariants.py`)
+### 4.16 invariant check functions (`src/invariants.py`)
 
 **SAD Component:** Invariant Enforcer
 
@@ -575,7 +575,7 @@ All functions return `InvariantCheck(name: str, passed: bool, reason: str)`.
 
 ---
 
-### 4.17 Observability Layer (`src/observability.py`)
+### 4.17 observability layer (`src/observability.py`)
 
 **SAD Component:** Observability Layer
 
@@ -612,7 +612,7 @@ All functions return `InvariantCheck(name: str, passed: bool, reason: str)`.
 
 ---
 
-### 4.18 Data Models (`src/models.py`)
+### 4.18 data models (`src/models.py`)
 
 **SAD Component:** Data Models
 
@@ -717,7 +717,7 @@ All functions return `InvariantCheck(name: str, passed: bool, reason: str)`.
 
 ---
 
-### 4.19 Config Dataclasses (`src/config.py`)
+### 4.19 config dataclasses (`src/config.py`)
 
 **SAD Component:** Config Loader
 
@@ -756,7 +756,7 @@ All functions return `InvariantCheck(name: str, passed: bool, reason: str)`.
 
 ---
 
-### 4.20 CLI Functions (`src/cli.py`)
+### 4.20 CLI functions (`src/cli.py`)
 
 **SAD Component:** CLI
 
@@ -816,9 +816,9 @@ All functions return `InvariantCheck(name: str, passed: bool, reason: str)`.
 
 ---
 
-### 4.21 State Transition Tables
+### 4.21 state transition tables
 
-#### ArtifactStatus Transitions
+#### ArtifactStatus transitions
 
 The harness reads artifact status but never writes it. The status lifecycle is managed by the operator.
 
@@ -832,7 +832,7 @@ The harness reads artifact status but never writes it. The status lifecycle is m
 | VALIDATED | Re-edit / correction applied | DRAFT | Operator |
 | FREEZE_PENDING | Operator rescinds approval | VALIDATED | Operator |
 
-#### CircuitBreaker State Transitions
+#### CircuitBreaker state transitions
 
 | Current State | Trigger | Next State | Details |
 |--------------|---------|------------|---------|
@@ -846,7 +846,7 @@ The harness reads artifact status but never writes it. The status lifecycle is m
 
 Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout and allows retry. If the retry fails, the failure count begins accumulating from 1, so the circuit does not immediately re-open (requires `max_failures` consecutive failures again).
 
-#### ConvergenceState Lifecycle
+#### ConvergenceState lifecycle
 
 | Phase | Trigger | State Change | Terminal? |
 |-------|---------|-------------|----------|
@@ -861,9 +861,9 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
 
 ---
 
-## 5. Build and Deployment Approach (Deterministic)
+## 5. build and deployment approach (Deterministic)
 
-### Build Steps
+### Build steps
 
 1. **Prerequisites:** Python 3.11+ installed. pip available.
 2. **Install dependencies (verified):** `pip install -r requirements-lock.txt` (pinned with hashes for reproducibility)
@@ -871,7 +871,7 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
 4. **No compilation step.** Python is interpreted. No build artifacts beyond the pip install.
 5. **Verify installation:** `python -c "from src import models; print('OK')"`
 
-### Deployment Steps
+### Deployment steps
 
 1. **Clone repository** to the operator's workstation
 2. **Install dependencies** per build steps above
@@ -883,7 +883,7 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
    - `AIEOS_INITIATIVE_ROOT` (optional override for initiative project path)
 5. **Verify provider health:** `python -m src.cli health`
 
-### Configuration Inputs Required
+### Configuration inputs required
 
 | Input | Source | Required? | Default |
 |-------|--------|-----------|---------|
@@ -893,16 +893,16 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
 | `AIEOS_ROOT` | Env var or YAML | Yes (for generate/validate/lifecycle) | `"../"` |
 | `AIEOS_INITIATIVE_ROOT` | Env var or YAML | If using initiative path | `""` |
 
-### Secrets Required (Names Only; No Values)
+### Secrets required (Names only; no values)
 
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
 
 ---
 
-## 6. Failure Handling and Rollback (Hard)
+## 6. failure handling and rollback (Hard)
 
-### Failure Modes
+### Failure modes
 
 | Failure Mode | Detection Signal | Rollback/Compensation | Partial Failure Behavior |
 |-------------|-----------------|----------------------|------------------------|
@@ -920,7 +920,7 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
 
 ---
 
-## 7. Observability (Hard)
+## 7. observability (Hard)
 
 ### Logs
 
@@ -938,7 +938,7 @@ Note: "HALF-OPEN" is implicit — the circuit breaker clears state on timeout an
 
 Not applicable. Single-process, single-machine operation. No distributed tracing.
 
-### Evidence Required to Prove Success
+### Evidence required to prove success
 
 - `harness-metrics.jsonl` contains one `InvocationRecord` per successful invocation with `result: "success"` and actual cost/token data
 - `health` subcommand shows all enabled providers as `OK`
@@ -948,13 +948,13 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 
 ---
 
-## 8. Testing Strategy (Hard)
+## 8. testing strategy (Hard)
 
-### Test Summary
+### Test summary
 
 166 tests total. All run without API keys.
 
-### Unit Tests (per module)
+### Unit tests (per module)
 
 | Module | Test File | Count | Key Behaviors Tested |
 |--------|-----------|-------|---------------------|
@@ -969,7 +969,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 | adapters | `tests/test_adapters.py` | ~ | MockAdapter preset responses, call history recording, should_fail behavior, ToolAdapter invoke/timeout/command-not-found, health checks |
 | cli | `tests/test_cli.py` | ~ | main() argument parsing, _resolve_kit_files() kit scanning, _collect_upstream_artifacts() frozen filtering, _build_adapters() lazy import, subcommand routing |
 
-### Integration Tests (Mock Providers)
+### Integration tests (Mock providers)
 
 | Test File | Count | Scenario |
 |-----------|-------|----------|
@@ -978,14 +978,14 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 | `tests/integration/test_lens_orchestration.py` | 20 | Multi-adapter routing scenarios across all 4 strategies. Circuit breaker integration. Consensus threshold behavior. Cost-aware provider selection. |
 | `tests/integration/test_multi_provider.py` | — | Multi-provider fallback and failover scenarios with CircuitBreaker state transitions. |
 
-### Slow Tests (Real API Keys)
+### Slow tests (Real API keys)
 
 - Gated behind `--run-slow` pytest flag
 - Require `ANTHROPIC_API_KEY` environment variable
 - Test actual Anthropic API invocation with token counting and cost verification
 - Not run in standard test suite — only for manual provider integration verification
 
-### Failure Tests
+### Failure tests
 
 - MockAdapter with `should_fail=True` → verifies RuntimeError propagation through routing and lifecycle
 - All-adapters-fail in fallback chain → verifies RuntimeError with collected error messages
@@ -997,7 +997,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 - Suggestion language in validator output → verifies InvariantCheck.passed == False
 - Tool timeout and command-not-found → verifies graceful error response (no crash)
 
-### Pass/Fail Criteria
+### Pass/Fail criteria
 
 - All 166 tests must pass: `pytest -v` returns exit code 0
 - Zero tests require API keys or network access in the standard run
@@ -1007,9 +1007,9 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 
 ---
 
-## 9. Operational Notes (Minimum Runbook)
+## 9. operational notes (Minimum runbook)
 
-### Deploy Procedure
+### Deploy procedure
 
 1. Clone repository to operator workstation
 2. `pip install -r requirements-lock.txt`
@@ -1017,21 +1017,21 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 4. Set API key environment variables
 5. Verify: `python -m src.cli health`
 
-### Verify Procedure
+### Verify procedure
 
 1. Run full test suite: `pytest -v`
 2. Check provider health: `python -m src.cli health`
 3. Run a test generation with mock adapter: configure mock provider in `harness.yaml`, run `python -m src.cli generate --type PRD --initiative <path>`
 4. Verify JSONL log created: `cat harness-metrics.jsonl | head -1`
 
-### Rollback Procedure
+### Rollback procedure
 
 1. `pip install -r requirements-lock.txt` (restore pinned dependency versions)
-2. `git checkout -- harness.yaml` if configuration was modified
+2. `git checkout: harness.yaml` if configuration was modified
 3. JSONL log is append-only; delete or truncate if metrics data is corrupted
 4. ER state block and journal are Markdown files; restore from version control if corrupted
 
-### Ownership/On-call Expectations
+### Ownership/On-call expectations
 
 - Single operator (Todd Linnertz) for all domains: invariant checks, routing strategies, convergence loop, adapter conformance, integration tests
 - Quarterly review cadence per eval domain ownership table
@@ -1039,7 +1039,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 
 ---
 
-## 10. Dependencies
+## 10. dependencies
 
 ### Internal (Module-to-Module)
 
@@ -1069,7 +1069,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 | openai | >= 1.50 | OpenAI Chat Completions API client | Optional (lazy-loaded, only if OpenAI adapter used) |
 | pytest | >= 8.0 | Test framework | Dev dependency only |
 
-### Standard Library Dependencies (Key)
+### Standard library dependencies (Key)
 
 | Module | Used By | Purpose |
 |--------|---------|---------|
@@ -1089,7 +1089,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 
 ---
 
-## 11. Risks and Assumptions
+## 11. risks and assumptions
 
 ### Risks
 
@@ -1111,7 +1111,7 @@ Not applicable. Single-process, single-machine operation. No distributed tracing
 
 ---
 
-## 12. Freeze Declaration (when ready)
+## 12. freeze declaration (when ready)
 
 This TDD documents the existing AIEOS Agent Harness (ECO-009) technical design retroactively. All specifications reflect the implemented codebase (16 source files, 166 tests).
 
@@ -1123,5 +1123,5 @@ This TDD documents the existing AIEOS Agent Harness (ECO-009) technical design r
 <!-- PRINCIPLES COVERAGE
 | Principles File | Section | TDD Section Addressed | Status |
 |---|---|---|---|
-| N/A — no principles files exist for this ecosystem project | — | — | N/A — PRD-HARNESS-001 Section 6 Constraints serve as guardrail source; all 6 constraints (C-1 through C-6) are addressed in §4.16 Invariant Check Functions and §6 Failure Handling |
+| N/A — no principles files exist for this system project | — | — | N/A — PRD-HARNESS-001 Section 6 Constraints serve as guardrail source; all 6 constraints (C-1 through C-6) are addressed in §4.16 Invariant Check Functions and §6 Failure Handling |
 -->

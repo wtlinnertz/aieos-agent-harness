@@ -7,17 +7,17 @@
 
 ---
 
-## 1. Inputs
+## 1. inputs
 
-### Project Description
+### Project description
 
 AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEOS governance framework. It binds AI providers (Anthropic, OpenAI) and deterministic tools (SAST, linters) to artifact lifecycle events. It invokes AI for artifact generation and validation, manages convergence loops, and tracks cost/latency per invocation. Risk profile: **High** — this project orchestrates AI calls that produce governance artifacts used in production software decisions.
 
-### Team Size
+### Team size
 
 1 (solo developer with AI assistance)
 
-### AI Tool Inventory
+### AI tool inventory
 
 | Tool | Type | Purpose |
 |------|------|---------|
@@ -26,7 +26,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | Subprocess tools (SAST, linters) | Deterministic | Code quality scanning via `ToolAdapter` |
 | Claude Code (development) | LLM | Used to develop the harness itself |
 
-### AI-Assisted Workflows
+### AI-Assisted workflows
 
 | Workflow | Scope | HITL Position |
 |----------|-------|---------------|
@@ -37,7 +37,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | W5: Tool pipeline | Chain SAST/linter output into LLM review | HITL — human reviews combined output |
 | W6: Development (meta) | Claude Code used to write harness source code | HITL — developer reviews all generated code |
 
-### Existing Documentation
+### Existing documentation
 
 - `CLAUDE.md` — project instructions for AI assistants
 - `harness.yaml.example` — configuration reference
@@ -47,9 +47,9 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-## 2. Foundation Assessment
+## 2. foundation assessment
 
-### 2.1 Human Oversight (7 gates)
+### 2.1 human oversight (7 gates)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
@@ -67,7 +67,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 2.2 Agent Security (9 gates)
+### 2.2 agent security (9 gates)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
@@ -87,7 +87,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 2.3 Eval Quality (8 gates)
+### 2.3 eval quality (8 gates)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
@@ -106,7 +106,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 2.4 Anti-Slop (6 gates)
+### 2.4 anti-Slop (6 gates)
 
 | Gate | Status | Evidence |
 |------|--------|----------|
@@ -123,7 +123,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### Foundation Summary
+### Foundation summary
 
 | Domain | Gates Passed | Gates Total | Status |
 |--------|-------------|-------------|--------|
@@ -136,9 +136,9 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-## 3. Standards Assessment
+## 3. standards assessment
 
-### 3.1 Specification (18-item checklist)
+### 3.1 specification (18-item checklist)
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
@@ -157,7 +157,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | Constraint architecture documented | Full | 100% | 7 invariants codified in `src/invariants.py` with musts/must-nots |
 | Work in smaller batches | Full | 100% | One artifact per invocation, convergence loop per artifact |
 | Agent capability model | Full | 100% | `AgentAdapter` Protocol defines: invoke, health, cost_estimate |
-| Spec-driven development | Full | 100% | Entire harness built from ECO-009 spec in ecosystem-roadmap.md |
+| Spec-driven development | Full | 100% | Entire harness built from ECO-009 spec in system-roadmap.md |
 | Reduce human input to single action | Partial | 50% | CLI `lifecycle` command is single action, but config setup is manual |
 | Guardrails that say "yes" | Full | 100% | Routing strategies (fallback, cost-aware) guide toward correct path |
 
@@ -167,7 +167,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 3.2 Context Engineering (19-item checklist)
+### 3.2 context engineering (19-item checklist)
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
@@ -197,7 +197,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 3.3 Testing (14-item checklist)
+### 3.3 testing (14-item checklist)
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
@@ -222,7 +222,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 3.4 Review (12-item checklist)
+### 3.4 review (12-item checklist)
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
@@ -245,7 +245,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-### 3.5 Operations (22-item checklist)
+### 3.5 operations (22-item checklist)
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
@@ -278,9 +278,9 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 ---
 
-## 4. Results
+## 4. results
 
-### Overall Scores
+### Overall scores
 
 ```json
 {
@@ -309,19 +309,19 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 }
 ```
 
-### Score Calculation
+### Score calculation
 
 - **Foundation percentage:** 4/4 = 100%
 - **Standards average:** (83 + 53 + 46 + 21 + 48) / 5 = 50.2%
 - **Overall:** (100 × 0.40) + (50.2 × 0.60) = 40.0 + 30.1 = **70.1 → 70**
 
-### Maturity Level: **2 (Practicing)**
+### Maturity level: **2 (Practicing)**
 
 All Foundation domains pass. Standards average (50.2%) is below 70% threshold for Level 3.
 
 ---
 
-## 5. Level 2 Achieved — Path to Level 3
+## 5. level 2 achieved — path to level 3
 
 **Level 2 remediation completed 2026-03-26.** All 6 actions executed:
 1. Added 5-element provenance to AgentResponse (code: models.py, anthropic.py, openai.py, mock.py)
@@ -331,7 +331,7 @@ All Foundation domains pass. Standards average (50.2%) is below 70% threshold fo
 5. Created docs/shadow-agent-scan.md (4-method scan, no shadow agents)
 6. Created docs/data-classification.md (6 data sources classified)
 
-### Path to Level 3
+### Path to level 3
 
 Standards average must reach 70%. Current: 50.2%. Biggest levers:
 
@@ -346,7 +346,7 @@ If all four domains reach target: Standards average = (83 + 70 + 70 + 60 + 70) /
 
 ---
 
-## 6. Assessment Self-Check
+## 6. assessment self-Check
 
 | Gate | Status | Evidence |
 |------|--------|----------|

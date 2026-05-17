@@ -1,6 +1,6 @@
 # Shadow Agent Scan
 
-## §1 Scan Methodology
+## §1 scan methodology
 
 Four methods used to identify undocumented AI agents operating outside harness governance:
 
@@ -9,11 +9,11 @@ Four methods used to identify undocumented AI agents operating outside harness g
 3. **Network traffic analysis** — Review outbound network connections to identify calls to AI provider endpoints not configured in harness.yaml.
 4. **Team interviews** — Confirm with all team members that no AI tools are being used outside the harness for AIEOS artifact work.
 
-## §2 Scan Date
+## §2 scan date
 
 2026-03-26
 
-## §3 Scan Results
+## §3 scan results
 
 **No shadow agents discovered.**
 
@@ -24,11 +24,11 @@ Four methods used to identify undocumented AI agents operating outside harness g
 | Network traffic analysis | Outbound connections from harness process | Harness only calls configured provider endpoints (api.anthropic.com, api.openai.com). No unexpected outbound connections. |
 | Team interviews | N/A (solo project) | Developer confirms no agents running outside harness configuration. No additional AI tools used for artifact generation or validation. |
 
-## §4 Disposition
+## §4 disposition
 
 No shadow agents found. All AI agents are inventoried in harness.yaml and documented in the practice assessment. Every AI provider interaction is routed through the harness adapter layer, logged in JSONL observability, and subject to the seven AIEOS invariants.
 
-## §5 Scan Schedule
+## §5 scan schedule
 
 Re-scan when any of the following occur:
 

@@ -29,11 +29,11 @@ PYTHONPATH=. python -m src.cli health
 
 Five components work together to orchestrate artifact lifecycles:
 
-1. **Lifecycle Binder** -- maps lifecycle events to adapter invocations
-2. **Routing Engine** -- four strategies (fallback, pipeline, parallel consensus, cost-aware)
-3. **Provider Adapter Layer** -- pluggable adapters (Anthropic, OpenAI, Tool, Mock)
-4. **State Manager** -- reads/writes ER state blocks and Sherpa Journal on disk
-5. **Observability Layer** -- per-invocation cost, latency, and token metrics in JSONL
+1. Lifecycle Binder: maps lifecycle events to adapter invocations
+2. Routing Engine: four strategies (fallback, pipeline, parallel consensus, cost-aware)
+3. Provider Adapter Layer: pluggable adapters (Anthropic, OpenAI, Tool, Mock)
+4. State Manager: reads and writes ER state blocks and Sherpa Journal on disk
+5. Observability Layer: per-invocation cost, latency, and token metrics in JSONL
 
 See [docs/architecture.md](docs/architecture.md) for the full component diagram and data flow.
 
@@ -58,13 +58,13 @@ See [docs/adding-providers.md](docs/adding-providers.md) for a step-by-step guid
 
 The harness programmatically enforces seven AIEOS structural invariants:
 
-- **Generation/validation separation** -- generation and validation always use separate invoke() calls
-- **Freeze-before-promote** -- upstream artifacts must be frozen before downstream generation
-- **Human freeze decision** -- artifacts stay VALIDATED until a human promotes to FROZEN
-- **Bounded convergence** -- max 3 generate-validate cycles before escalation
-- **Validator output format** -- validators produce PASS/FAIL JSON only, no suggestions
-- **Tool-agnostic policy** -- no provider-specific references in governance content
-- **Disk-based state** -- ER and Journal files on disk are the system of record
+- Generation/validation separation: generation and validation always use separate invoke() calls
+- Freeze-before-promote: upstream artifacts must be frozen before downstream generation
+- Human freeze decision: artifacts stay VALIDATED until a human promotes to FROZEN
+- Bounded convergence: max 3 generate-validate cycles before escalation
+- Validator output format: validators produce PASS/FAIL JSON only, no suggestions
+- Tool-agnostic policy: no provider-specific references in governance content
+- Disk-based state: ER and Journal files on disk are the system of record
 
 ## License
 

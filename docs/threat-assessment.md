@@ -1,6 +1,6 @@
 # Threat Assessment
 
-## §1 Scope
+## §1 scope
 
 The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic tools (SAST, linters) for AIEOS artifact generation and validation. It handles:
 
@@ -9,7 +9,7 @@ The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic
 - **Provider API keys** — via environment variables only
 - **Invocation metadata** — cost, tokens, latency (persisted in JSONL logs)
 
-## §2 Input Surface Threats
+## §2 input surface threats
 
 | Threat | Severity | Existing Mitigation | Residual Risk |
 |--------|----------|---------------------|---------------|
@@ -18,7 +18,7 @@ The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic
 | Context poisoning via artifact store queries | Medium | Artifact store is optional, read-only. Harness does not write to store. | Poisoned store returns misleading context that influences generation. |
 | Malformed harness.yaml configuration | Medium | Config validated at load time. Schema enforced before any invocation. | Misconfigured routing could send data to unintended provider. |
 
-## §3 Processing Surface Threats
+## §3 processing surface threats
 
 | Threat | Severity | Existing Mitigation | Residual Risk |
 |--------|----------|---------------------|---------------|
@@ -27,7 +27,7 @@ The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic
 | Provider API key exposure | High | Keys from env vars only, never in YAML or logs. | Process memory dump could expose keys. |
 | Provider data retention | Medium | Tool-agnostic policy means no provider lock-in. Provider choice is configurable. | Providers may retain input data per their own data processing policies. |
 
-## §4 Output Surface Threats
+## §4 output surface threats
 
 | Threat | Severity | Existing Mitigation | Residual Risk |
 |--------|----------|---------------------|---------------|
@@ -35,7 +35,7 @@ The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic
 | Observability log tampering | Low | JSONL is append-only by convention. Logs contain metadata only, not content. | No cryptographic integrity protection on log files. |
 | ER state manipulation | Medium | State writes follow structured format. Harness never auto-freezes artifacts. | Corrupted state block could mislead next session about artifact status. |
 
-## §5 Mitigation Summary
+## §5 mitigation summary
 
 | Mitigation | Covers | Coverage Assessment |
 |------------|--------|---------------------|
@@ -49,7 +49,7 @@ The harness orchestrates AI provider calls (Anthropic, OpenAI) and deterministic
 | Append-only JSONL logs | Log tampering | Weak — convention only, no cryptographic enforcement |
 | Human freeze decision | State manipulation | Strong — human reviews before any promotion |
 
-## §6 Recommendations
+## §6 recommendations
 
 Prioritized by risk reduction:
 

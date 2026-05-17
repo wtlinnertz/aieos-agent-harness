@@ -1,6 +1,6 @@
 # Engagement Record: ER-HARNESS-001
 
-## §1 Document Control
+## §1 document control
 
 | Field | Value |
 |-------|-------|
@@ -14,7 +14,7 @@
 | Current Position | N-EEK-KER |
 | Preset | P2 (Enhancement) |
 
-### §1b State Block
+### §1b state block
 
 | Field | Value |
 |-------|-------|
@@ -28,25 +28,25 @@
 
 ---
 
-## §1a Layer 1 — Strategic Direction
+## §1a layer 1 — strategic direction
 
-SDK not engaged — ECO-009 originated from ecosystem roadmap (not a governed strategic bet).
+SDK not engaged — ECO-009 originated from system roadmap (not a governed strategic bet).
 
 ---
 
-## §2 Layer 2 — Product Intelligence
+## §2 layer 2 — product intelligence
 
 PIK not engaged — Path B entry justified in KER. Existing working system with 166 tests; scope well-understood.
 
 ---
 
-## §3a Layer 3 — Solution Sourcing
+## §3a layer 3 — solution sourcing
 
 SSK not engaged — fast-path Build justified in KER. This is a custom-built orchestration engine with no viable Buy/Adopt options.
 
 ---
 
-## §3 Layer 4 — Engineering Execution
+## §3 layer 4 — engineering execution
 
 **Artifact table:**
 
@@ -73,19 +73,19 @@ None — all 8 artifacts validated PASS on first attempt.
 
 ---
 
-## §4 Layer 5 — Release & Exposure
+## §4 layer 5 — release & exposure
 
 REK not engaged — library + CLI installed locally via pip. No production deployment. If the harness is deployed as a service in the future, REK engagement should be triggered as a new initiative.
 
 ---
 
-## §5 Layer 6 — Reliability & Resilience
+## §5 layer 6 — reliability & resilience
 
 RRK not engaged — no production SLOs. Circuit breaker and bounded convergence provide local reliability, but no operational monitoring or health reviews are applicable for a locally-installed tool.
 
 ---
 
-## Cross-Cutting Kit Decisions
+## Cross-Cutting kit decisions
 
 | Kit | Decision | Justification |
 |-----|----------|---------------|
@@ -98,16 +98,16 @@ RRK not engaged — no production SLOs. Circuit breaker and bounded convergence 
 
 ---
 
-## §16 Framework Findings
+## §16 framework findings
 
-### FINDING-1: Retroactive governance is viable but produces different artifacts
+### FINDING-1: retroactive governance is viable but produces different artifacts
 
 **Type:** Process observation
 **Description:** When governing an existing codebase retroactively, artifacts document decisions already made rather than plan future work. This changes the artifact character — requirements use "SHALL" (documenting what exists) not "should" (planning what will exist). All 8 artifacts validated PASS on first attempt because the code already satisfies the requirements extracted from it. This is expected for retroactive governance but means the validation loop doesn't serve its usual quality-improvement function.
 **Recommendation:** Consider adding a "Retroactive" flag to ER Document Control so downstream consumers know these artifacts describe existing state, not design intent.
 
-### FINDING-2: AI SDLC Governance assessment is complementary to AIEOS governance
+### FINDING-2: AI SDLC governance assessment is complementary to AIEOS governance
 
 **Type:** Integration observation
-**Description:** The harness was assessed at AI SDLC Governance Level 2 before AIEOS governance was applied. The two frameworks cover different concerns: AI SDLC Governance checks practice quality (human oversight, agent security, eval quality, anti-slop). AIEOS checks artifact quality (specs, architecture, design, decomposition). Together they provide comprehensive governance. Neither subsumes the other.
+**Description:** The harness was assessed at AI SDLC Governance Level 2 before AIEOS governance was applied. The two frameworks cover different concerns: AI SDLC Governance checks practice quality (human oversight, agent security, eval quality, anti-slop). AIEOS checks artifact quality (specs, architecture, design, decomposition). Together they provide complete governance. Neither subsumes the other.
 **Recommendation:** Document this complementary relationship in both frameworks' getting-started guides.

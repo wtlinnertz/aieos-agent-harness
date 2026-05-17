@@ -1,6 +1,6 @@
 # DCF — Design Context File
 
-## 0. Document Control
+## 0. document control
 
 - DCF ID: DCF-HARNESS-001
 - Owner: Todd Linnertz
@@ -16,13 +16,13 @@
 
 ---
 
-## 1. Purpose
+## 1. purpose
 
 This DCF defines the implementation-level design standards, quality bars, testing expectations, and operational requirements that any Technical Design Document for the HARNESS initiative must comply with. It captures standards and constraints extracted from the existing codebase — not designs or implementations.
 
 ---
 
-## 2. Design Principles (Hard)
+## 2. design principles (Hard)
 
 - **DP-1: Separate domain logic from infrastructure.** Domain components (Data Models, Invariant Enforcer, Convergence Loop) must not import infrastructure modules (adapters, CLI). Application components (Lifecycle Binder, Routing Engine, Config Loader, Observability Layer, State Manager) depend on domain and on the AgentAdapter Protocol abstraction — never on concrete adapter classes. This is enforced by the layer assignment in SAD-HARNESS-001 §4.
 - **DP-2: Protocol-based interfaces over inheritance.** All adapter integration uses Python's `Protocol` (PEP 544) with `@runtime_checkable`. No abstract base classes. Adapters conform structurally without inheriting from harness code. New adapters implement `invoke()`, `health()`, `cost_estimate()`, `provider_name`, and `model_name` — nothing else.
@@ -35,7 +35,7 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 3. Quality Bars (Hard)
+## 3. quality bars (Hard)
 
 - **QB-1: All interfaces have explicit contracts.** The AgentAdapter Protocol defines exactly 5 members (provider_name, model_name, invoke, health, cost_estimate). AgentRequest has 9 fields. AgentResponse has 12 fields with provenance. All dataclasses have typed fields — no **kwargs, no untyped dicts as primary interfaces.
 - **QB-2: Every invariant is a pure function.** Each of the 7 invariant checks in `src/invariants.py` is a standalone function that accepts inputs and returns an InvariantCheck dataclass (name, passed, reason). No side effects, no I/O (except freeze-before-promote which delegates to State Manager's read interface).
@@ -47,7 +47,7 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 4. Non-Goals Enforcement (Hard)
+## 4. non-Goals enforcement (Hard)
 
 - **NGE-1:** The TDD must not design a graphical user interface (PRD NG-1). The system is CLI-only.
 - **NGE-2:** The TDD must not design a database backend (PRD NG-2). All state is Markdown and JSONL on disk.
@@ -60,7 +60,7 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 5. Operational Expectations (Hard)
+## 5. operational expectations (Hard)
 
 - **Deployment verification:** The system is a local CLI tool, not a deployed service. Verification is: `pytest -v` passes all tests with zero failures, and `pip install -r requirements-lock.txt` completes without errors. No health check endpoint exists (CLI tool, not a service).
 - **Monitoring/alerting:** Per-invocation structured metrics recorded to JSONL (15 fields per InvocationRecord). Cost summary aggregation by provider and artifact type. Provider health summary with derived status (OK/DEGRADED/DOWN based on failure rate thresholds). Cost anomaly detection flagging invocations exceeding 3x rolling mean within a configurable lookback window (default 24 hours). No external monitoring integration (deferred decision in SAD-HARNESS-001 §11).
@@ -68,27 +68,27 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 6. Testing Expectations (Hard)
+## 6. testing expectations (Hard)
 
-### Required Test Layers
+### Required test layers
 
 - **Unit tests:** All domain logic (invariant checks, convergence loop, data models, routing strategies, lifecycle binding, state parsing, observability aggregation, config loading). All 7 invariant checks tested individually. All 4 routing strategies tested (fallback, pipeline, parallel_consensus, cost_aware). Circuit breaker open/close/half-open transitions tested. Convergence staleness and oscillation detection tested. Markdown table parsing for ER state blocks tested. JSONL recording and aggregation tested. Isolated from infrastructure — all tests use MockAdapter, no API keys required.
 - **Integration tests:** Full lifecycle flow (generate then validate via mock providers). Convergence loop end-to-end (multi-iteration with mock adapters returning progressive validation results). Multi-provider routing with circuit breaker interaction. Lens orchestration flows.
 
-### Evidence Requirements
+### Evidence requirements
 
 - pytest execution report (pass/fail per test, execution time)
 - All 166+ tests pass with zero failures
 - No test requires network access or real provider API keys (except tests marked `--run-slow`)
 
-### Evidence Management
+### Evidence management
 
 - **Formats:** pytest terminal output, pytest JUnit XML (if CI configured)
 - **Storage:** Local execution; CI pipeline output when CI is configured
 - **Retention:** Test code versioned alongside source code in the repository
 - **Accessibility:** Reproducible by running `pytest -v` from the repository root
 
-### Promotion Gates
+### Promotion gates
 
 - All unit tests pass (zero failures): `pytest tests/ -v --ignore=tests/integration`
 - All integration tests pass: `pytest tests/integration/ -v`
@@ -98,21 +98,21 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 7. Documentation Expectations (Hard)
+## 7. documentation expectations (Hard)
 
-### Required TDD Sections
+### Required TDD sections
 
 - Component design for each SAD component (Config Loader, Data Models, Lifecycle Binder, Routing Engine, Convergence Loop, State Manager, Invariant Enforcer, Observability Layer, CLI, Adapter Protocol, and each adapter implementation)
 - Interface contracts: AgentAdapter Protocol (5 members), AgentRequest (9 fields), AgentResponse (12 fields), ValidationResult (6 fields), all with typed signatures
 - State transitions: Artifact lifecycle (DRAFT → VALIDATED → FREEZE_PENDING → FROZEN), Circuit breaker (CLOSED → OPEN → HALF-OPEN → CLOSED), Convergence (generate → validate → parse → pass/correct/escalate)
 - Error handling: Per-component failure modes from SAD-HARNESS-001 §8
 
-### Required Diagram Types
+### Required diagram types
 
 - Sequence diagram: lifecycle command flow (CLI → Lifecycle Binder → Routing Engine → Adapter → Convergence Loop → State Manager → output)
 - Component diagram: layer assignment (Domain/Application/Infrastructure) with dependency arrows
 
-### Required Traceability Markers
+### Required traceability markers
 
 - Every TDD component must reference its SAD component (SAD-HARNESS-001 §4)
 - Every test scenario must reference the PRD requirement it validates (FR-N, NFR-N, C-N)
@@ -120,14 +120,14 @@ This DCF defines the implementation-level design standards, quality bars, testin
 
 ---
 
-## 8. Open Items
+## 8. open items
 
 - OI-1: Per-artifact-type convergence limits not yet implemented (deferred decision in SAD-HARNESS-001 §11). Global default of 3 iterations applies to all artifact types. Revisit if operator feedback indicates artifact types with different convergence characteristics.
 - OI-2: Configuration schema validation not implemented (deferred decision in SAD-HARNESS-001 §11). Invalid YAML keys are silently ignored. Revisit when configuration complexity grows.
 
 ---
 
-## 9. Freeze Declaration (when ready)
+## 9. freeze declaration (when ready)
 
 - Approved By: _pending_
 - Date: _pending_

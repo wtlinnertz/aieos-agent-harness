@@ -6,7 +6,7 @@ This record is **human-authored**. It is validated against `kit-entry-spec.md` b
 
 ---
 
-## Document Control
+## Document control
 
 - Record ID: KER-HARNESS-001
 - Date: 2026-03-26
@@ -19,18 +19,18 @@ This record is **human-authored**. It is validated against `kit-entry-spec.md` b
 
 ---
 
-## Classification Check
+## Classification check
 
 Select one:
 
 - [ ] **Classification record exists** — Work Classification Record ID: _____________
   Confirm the record routes to: Engineering Execution Kit
 - [x] **No classification record** — Justification for absence:
-  Retroactive governance of an existing ecosystem project (ECO-009). The project was built from a formal ECO-009 specification in the AIEOS ecosystem roadmap, routed through a sherpa session with decision table evaluation (J-ENTRY-1 → E-002, J-ENTRY-2 → P2). Classification not applicable — the system is already built and tested; this engagement documents existing decisions.
+  Retroactive governance of an existing system project (ECO-009). The project was built from a formal ECO-009 specification in the AIEOS system roadmap, routed through a sherpa session with decision table evaluation (J-ENTRY-1 → E-002, J-ENTRY-2 → P2). Classification not applicable — the system is already built and tested; this engagement documents existing decisions.
 
 ---
 
-## Entry Path
+## Entry path
 
 Select exactly one:
 
@@ -42,21 +42,21 @@ Select exactly one:
   - [ ] Bug Fix
   - [ ] Tech Debt
   - [ ] Compliance Mandate
-  - [x] Other: Retroactive governance of existing ecosystem project
+  - [x] Other: Retroactive governance of existing system project
 
   Justification for bypassing discovery:
-  ECO-009 was designed, specified, and implemented from the AIEOS ecosystem roadmap (Phase 5) with a formal fit analysis against AIEOS invariants. The architecture, components, and design decisions are complete and documented in source code, tests, CLAUDE.md, docs/architecture.md, and the ECO-009 specification in ecosystem-roadmap.md. No discovery is needed — the system exists, works, and has been assessed. This engagement extracts governance artifacts from the existing codebase rather than planning new work.
+  ECO-009 was designed, specified, and implemented from the AIEOS system roadmap (Phase 5) with a formal fit analysis against AIEOS invariants. The architecture, components, and design decisions are complete and documented in source code, tests, CLAUDE.md, docs/architecture.md, and the ECO-009 specification in system-roadmap.md. No discovery is needed — the system exists, works, and has been assessed. This engagement extracts governance artifacts from the existing codebase rather than planning new work.
 
 ---
 
-## Priority Decision
+## Priority decision
 
 - Priority decision on record: Yes
-- Reference: ECO-009 added to AIEOS ecosystem roadmap 2026-03-25 (commit 794c319). Approved as Phase 5 ecosystem project. Retroactive governance approved by initiative sponsor 2026-03-26.
+- Reference: ECO-009 added to AIEOS system roadmap 2026-03-25 (commit 794c319). Approved as Phase 5 system project. Retroactive governance approved by initiative sponsor 2026-03-26.
 
 ---
 
-## Scope Boundary
+## Scope boundary
 
 **In scope:** Produce AIEOS-governed artifacts (PRD, ACF, SAD, DCF, TDD, WDD, ORD) documenting the existing aieos-agent-harness codebase. Artifacts describe what was built and why, extracted from source code, tests, git history, and design documents.
 
@@ -64,7 +64,7 @@ Select exactly one:
 
 ---
 
-## Completeness Checklist
+## Completeness checklist
 
 Before validating and freezing this record, confirm:
 
@@ -81,7 +81,7 @@ Before validating and freezing this record, confirm:
 
 ---
 
-## Freeze Declaration
+## Freeze declaration
 
 This Kit Entry Record is validated and frozen. Artifact generation may proceed.
 

@@ -5,7 +5,7 @@ Audience: operators deploying and maintaining the AIEOS agent harness.
 The harness is the runtime registry for AIEOS capability adapters. It
 persists adapter registrations, verifies their conformance attestations,
 and exposes a lookup API the pipeline runner's resolver calls during spec
-compilation. This guide covers deployment, registration workflows,
+compilation. this covers deployment, registration workflows,
 contract-version cutover response, and incident diagnosis.
 
 For companion operator concerns on the pipeline runner, see
