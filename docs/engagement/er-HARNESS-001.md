@@ -77,6 +77,8 @@ None — all 8 artifacts validated PASS on first attempt.
 
 REK not engaged — library + CLI installed locally via pip. No production deployment. If the harness is deployed as a service in the future, REK engagement should be triggered as a new initiative.
 
+Exemption status: REK and RRK not engaged for this initiative. Rationale: the agent harness was developed as bootstrapping infrastructure for AIEOS itself. Prospective governance of the harness using the harness is a bootstrapping constraint. The harness has been tested (143+ tests), has an operator guide (M7), and is informally monitored. Full REK/RRK governance is planned for v2.0 when the harness governs its own next major version.
+
 ---
 
 ## §5 layer 6 — reliability & resilience
