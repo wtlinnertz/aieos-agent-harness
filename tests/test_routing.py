@@ -306,3 +306,93 @@ class TestCostAwareStrategy:
 
         assert response.content == "mid result"
         assert response.provider == "mid"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: half-open breaker, unknown strategy, all-fail, consensus counting,
+# pipeline / cost-aware guards
+# ---------------------------------------------------------------------------
+
+
+def _resp(content: str) -> AgentResponse:
+    return AgentResponse(
+        content=content, provider="p", model="m",
+        tokens_in=1, tokens_out=1, cost_usd=0.0, latency_ms=1.0,
+    )
+
+
+class TestCircuitBreakerHalfOpen:
+    def test_half_opens_after_reset_window(self) -> None:
+        """reset_seconds=0 -> breaker half-opens on the next check and clears state."""
+        cb = CircuitBreaker(max_failures=1, reset_seconds=0.0)
+        cb.record_failure("p")
+        assert cb.is_open("p") is False
+
+    def test_stays_open_before_reset(self) -> None:
+        cb = CircuitBreaker(max_failures=1, reset_seconds=60.0)
+        cb.record_failure("p")
+        assert cb.is_open("p") is True
+
+
+class TestRouteDispatchErrors:
+    def test_unknown_strategy_raises(self) -> None:
+        engine = RoutingEngine()
+        with pytest.raises(ValueError, match="Unknown routing strategy"):
+            engine.route("not-a-strategy", [MockAdapter()], _make_request(), {})
+
+
+class TestParallelConsensusAllFail:
+    def test_all_adapters_fail_raises_runtime(self) -> None:
+        engine = RoutingEngine()
+        adapters = [
+            MockAdapter(provider_name="a", should_fail=True),
+            MockAdapter(provider_name="b", should_fail=True),
+        ]
+        with pytest.raises(RuntimeError, match="parallel consensus"):
+            engine.route(RoutingStrategy.PARALLEL_CONSENSUS, adapters, _make_request(), {})
+
+
+class TestCountAgreeing:
+    def test_empty_returns_zero(self) -> None:
+        assert RoutingEngine._count_agreeing([]) == 0
+
+    def test_single_returns_one(self) -> None:
+        assert RoutingEngine._count_agreeing([_resp("x")]) == 1
+
+    def test_all_empty_content_counts_zero_length(self) -> None:
+        assert RoutingEngine._count_agreeing([_resp(""), _resp("")]) == 2
+
+
+class TestPipelineGuard:
+    def test_pipeline_requires_at_least_one_adapter(self) -> None:
+        engine = RoutingEngine()
+        with pytest.raises(ValueError, match="at least one adapter"):
+            engine.route(RoutingStrategy.PIPELINE, [], _make_request(), {})
+
+
+class TestCostAwareEdge:
+    def test_min_tier_filters_all_then_raises(self) -> None:
+        # MockAdapter.cost_estimate is 0.001; min_tier above it filters everything out.
+        engine = RoutingEngine()
+        with pytest.raises(RuntimeError, match="cost-aware"):
+            engine.route(
+                RoutingStrategy.COST_AWARE, [MockAdapter()], _make_request(), {"min_tier": 1.0}
+            )
+
+    def test_open_breaker_skips_adapter(self) -> None:
+        cb = CircuitBreaker(max_failures=1, reset_seconds=60.0)
+        cb.record_failure("only")
+        engine = RoutingEngine(circuit_breaker=cb)
+        with pytest.raises(RuntimeError, match="circuit breaker open"):
+            engine.route(
+                RoutingStrategy.COST_AWARE, [MockAdapter(provider_name="only")], _make_request(), {}
+            )
+
+    def test_all_adapters_fail_raises(self) -> None:
+        engine = RoutingEngine()
+        with pytest.raises(RuntimeError, match="cost-aware"):
+            engine.route(
+                RoutingStrategy.COST_AWARE,
+                [MockAdapter(provider_name="a", should_fail=True)],
+                _make_request(), {},
+            )

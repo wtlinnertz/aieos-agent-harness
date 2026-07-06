@@ -505,3 +505,74 @@ class TestLensReviewConvergence:
 
         assert result.status == "PASS"
         assert state.current_iteration == 1
+
+
+class TestParseValidationResultErrors:
+    def test_invalid_json_raises(self) -> None:
+        resp = AgentResponse(
+            content="```json\n{not: valid, json,}\n```",
+            provider="p", model="m", tokens_in=1, tokens_out=1, cost_usd=0.0, latency_ms=1.0,
+        )
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            parse_validation_result(resp)
+
+    def test_missing_required_fields_raises(self) -> None:
+        resp = AgentResponse(
+            content='{"status": "PASS", "summary": "ok"}',
+            provider="p", model="m", tokens_in=1, tokens_out=1, cost_usd=0.0, latency_ms=1.0,
+        )
+        with pytest.raises(ValueError, match="missing required fields"):
+            parse_validation_result(resp)
+
+
+class TestConvergenceLoopEdgeInternals:
+    def test_oscillation_detected_terminates_loop(self) -> None:
+        """A gate that fails, passes, then fails again trips oscillation detection."""
+        gen = MockAdapter(provider_name="gen", preset_responses={"PRD": "content"})
+        val = SequentialMockAdapter(
+            provider_name="validator",
+            responses=[FAIL_GATE_A, FAIL_GATE_B, FAIL_GATE_A],
+        )
+        loop = ConvergenceLoop(gen, val, max_iterations=4)
+
+        _response, result, state = loop.run(_make_request(), _make_request())
+
+        assert result.status == "FAIL"
+        # Oscillation needs >= 3 ledger entries; the loop terminated without converging.
+        assert len(state.ledger) >= 3
+
+    def test_lens_error_is_logged_and_does_not_block(self) -> None:
+        """A lens adapter that raises is caught; the loop still converges."""
+        gen = MockAdapter(provider_name="gen", preset_responses={"PRD": "content"})
+        val = SequentialMockAdapter(provider_name="validator", responses=[PASS_VALIDATION])
+        bad_lens = MockAdapter(provider_name="security-lens", should_fail=True)
+        loop = ConvergenceLoop(gen, val, max_iterations=3, lens_adapters={"security": bad_lens})
+
+        _response, result, _state = loop.run(_make_request(), _make_request())
+
+        assert result.status == "PASS"
+
+    def test_detect_staleness_false_without_matching_issue(self) -> None:
+        loop = ConvergenceLoop(MockAdapter(), MockAdapter())
+        state = ConvergenceState(
+            artifact_id="PRD-X-001",
+            artifact_type="PRD",
+            ledger=[
+                {"hard_gates": {"g": "FAIL"}, "blocking_issues": []},
+                {"hard_gates": {"g": "FAIL"}, "blocking_issues": []},
+            ],
+        )
+        assert loop._detect_staleness(state) is False
+
+    def test_detect_oscillation_false_when_gate_fails_throughout(self) -> None:
+        loop = ConvergenceLoop(MockAdapter(), MockAdapter())
+        state = ConvergenceState(
+            artifact_id="PRD-X-001",
+            artifact_type="PRD",
+            ledger=[
+                {"hard_gates": {"g": "FAIL"}},
+                {"hard_gates": {"g": "FAIL"}},
+                {"hard_gates": {"g": "FAIL"}},
+            ],
+        )
+        assert loop._detect_oscillation(state) is False

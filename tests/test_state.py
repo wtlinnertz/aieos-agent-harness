@@ -117,3 +117,41 @@ class TestJournal:
         entries = read_journal_entries(journal)
         assert len(entries) == 1
         assert entries[0]["Artifact"] == "PRD-X-001"
+
+
+class TestReadFrozenArtifactsEdgeCases:
+    def _make_sdlc(self, tmp_path, name, content):
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(content)
+        return tmp_path
+
+    def test_block_without_artifact_id_is_skipped(self, tmp_path):
+        root = self._make_sdlc(tmp_path, "01.md", "| Status | Frozen |\n")
+        assert read_frozen_artifacts(root) == {}
+
+    def test_block_without_status_is_skipped(self, tmp_path):
+        root = self._make_sdlc(tmp_path, "01.md", "| Artifact ID | PRD-X-001 |\n")
+        assert read_frozen_artifacts(root) == {}
+
+    def test_invalid_status_falls_back_to_draft(self, tmp_path):
+        root = self._make_sdlc(
+            tmp_path, "01.md", "| Artifact ID | PRD-X-001 |\n| Status | Bogus |\n"
+        )
+        assert read_frozen_artifacts(root) == {"PRD-X-001": ArtifactStatus.DRAFT}
+
+
+class TestJournalSeparatorRows:
+    def test_dashed_separator_rows_are_skipped(self, tmp_path):
+        journal = tmp_path / "journal.md"
+        journal.write_text(
+            "### Invocation -- 2026-03-25T10:00:00Z\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| ---- | ---- |\n"
+            "| Artifact | PRD-X-001 |\n"
+        )
+        entries = read_journal_entries(journal)
+        assert len(entries) == 1
+        assert entries[0]["Artifact"] == "PRD-X-001"
+        assert "----" not in entries[0]
