@@ -23,7 +23,10 @@ class TestEnums:
         assert ArtifactStatus.VALIDATED.value == "VALIDATED"
         assert ArtifactStatus.FREEZE_PENDING.value == "FREEZE_PENDING"
         assert ArtifactStatus.FROZEN.value == "FROZEN"
-        assert len(ArtifactStatus) == 4
+        # Andon-cord fault states (ADR-0004), mirrors schema/document-control.yaml
+        assert ArtifactStatus.HALTED.value == "HALTED"
+        assert ArtifactStatus.FAULTED.value == "FAULTED"
+        assert len(ArtifactStatus) == 6
 
     def test_lifecycle_event_values(self):
         assert LifecycleEvent.PRE_GENERATION.value == "PRE_GENERATION"
