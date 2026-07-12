@@ -12,6 +12,12 @@ class ArtifactStatus(Enum):
     VALIDATED = "VALIDATED"
     FREEZE_PENDING = "FREEZE_PENDING"
     FROZEN = "FROZEN"
+    # Andon-cord fault states (ADR-0004). Written only by the andon cord, never
+    # by a freeze path. HALTED = clean stop, resumable once the triggering
+    # condition clears. FAULTED = governance breach; needs a recorded human
+    # clear before any resume. Mirrors schema/document-control.yaml (FR-018).
+    HALTED = "HALTED"
+    FAULTED = "FAULTED"
 
 
 class LifecycleEvent(Enum):
