@@ -144,3 +144,76 @@ class TestApplyFreezeThroughFacade:
         )
         with pytest.raises(FreezeError):
             driver.apply_freeze_decision(decision)
+
+
+import json as _json  # noqa: E402
+
+
+def _fake_kit(aieos_root, artifact_type, with_validator=False):
+    """Create a minimal kit dir tree for run_artifact resolution."""
+    kit = aieos_root / "aieos-eek"
+    (kit / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+    (kit / "docs" / "artifacts").mkdir(parents=True, exist_ok=True)
+    (kit / "docs" / "prompts").mkdir(parents=True, exist_ok=True)
+    t = artifact_type.lower()
+    (kit / "docs" / "specs" / f"{t}-spec.md").write_text(f"# {artifact_type} spec")
+    (kit / "docs" / "artifacts" / f"{t}-template.md").write_text("template")
+    (kit / "docs" / "prompts" / f"{t}-prompt.md").write_text("prompt")
+    if with_validator:
+        (kit / "docs" / "validators").mkdir(parents=True, exist_ok=True)
+        (kit / "docs" / "validators" / f"{t}-validator.md").write_text("validate")
+
+
+_PASS = _json.dumps({
+    "status": "PASS", "summary": "ok", "hard_gates": {"g": "PASS"},
+    "blocking_issues": [], "warnings": [], "completeness_score": 90,
+})
+_FAIL = _json.dumps({
+    "status": "FAIL", "summary": "no", "hard_gates": {"g": "FAIL"},
+    "blocking_issues": [{"gate": "g", "description": "x", "location": "y"}],
+    "warnings": [], "completeness_score": 10,
+})
+
+
+class TestRunArtifact:
+    def test_converged(self, tmp_path):
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        (aieos_root / "not-a-kit").mkdir()  # exercises the non-kit skip
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        driver = HarnessDriver(
+            initiative, MockAdapter(),
+            MockAdapter(preset_responses={"PRD": _PASS}),
+            aieos_root=aieos_root,
+        )
+        assert driver.run_artifact("PRD") == LifecycleResult.CONVERGED
+
+    def test_escalation(self, tmp_path):
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD", with_validator=True)
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        driver = HarnessDriver(
+            initiative, MockAdapter(),
+            MockAdapter(preset_responses={"PRD": _FAIL}),
+            max_iterations=2, aieos_root=aieos_root,
+        )
+        assert driver.run_artifact("PRD") == LifecycleResult.ESCALATION_NEEDED
+
+    def test_requires_aieos_root(self, tmp_path):
+        driver = HarnessDriver(tmp_path, MockAdapter(), MockAdapter())
+        with pytest.raises(ValueError, match="aieos_root"):
+            driver.run_artifact("PRD")
+
+    def test_missing_spec_raises(self, tmp_path):
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        driver = HarnessDriver(
+            tmp_path / "init", MockAdapter(), MockAdapter(), aieos_root=aieos_root
+        )
+        (tmp_path / "init").mkdir()
+        with pytest.raises(ValueError, match="No kit spec"):
+            driver.run_artifact("PRD")

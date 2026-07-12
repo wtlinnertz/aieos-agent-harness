@@ -25,6 +25,7 @@ from src.freeze import apply_freeze_decision
 from src.models import (
     AgentRequest,
     ERStateBlock,
+    LifecycleEvent,
     FreezeGateDecision,
     FreezeResult,
     LifecycleResult,
@@ -44,11 +45,14 @@ class HarnessDriver:
         max_iterations: int = 3,
         er_path: Optional[Path] = None,
         journal_path: Optional[Path] = None,
+        aieos_root: Optional[Path] = None,
     ) -> None:
         self._initiative = Path(initiative_path)
         self._gen = generate_adapter
         self._val = validate_adapter
         self._max_iterations = max_iterations
+        # Kit files root (docs/specs|artifacts|prompts|validators) for run_artifact.
+        self._aieos_root = Path(aieos_root) if aieos_root is not None else None
         # Default the on-disk substrate to the initiative's engagement record.
         self._er_path = (
             Path(er_path)
@@ -60,6 +64,63 @@ class HarnessDriver:
             if journal_path is not None
             else self._initiative / "docs" / "engagement" / "journal.md"
         )
+
+    def run_artifact(self, artifact_type: str) -> LifecycleResult:
+        """Artifact-type-level lifecycle -- the conductor-facing entry point.
+
+        Resolves the artifact type's kit files, assembles the generate/validate
+        requests, and runs the bounded loop. Request assembly stays inside the
+        harness so the dark-factory control plane can call the facade with just
+        an artifact type and never needs harness internals (AgentRequest,
+        LifecycleEvent, kit resolution). Requires ``aieos_root``.
+        """
+        if self._aieos_root is None:
+            raise ValueError(
+                "run_artifact requires aieos_root (kit files location) at construction"
+            )
+        from src.cli import _collect_upstream_artifacts, _resolve_kit_files
+
+        spec, template, prompt = _resolve_kit_files(self._aieos_root, artifact_type)
+        if not spec:
+            raise ValueError(
+                f"No kit spec for artifact type {artifact_type!r} under {self._aieos_root}"
+            )
+        upstream = _collect_upstream_artifacts(self._initiative)
+
+        validator_prompt = ""
+        for kit_dir in sorted(self._aieos_root.iterdir()):
+            if not kit_dir.is_dir() or not kit_dir.name.startswith("aieos-"):
+                continue
+            vp = (
+                kit_dir / "docs" / "validators" / f"{artifact_type.lower()}-validator.md"
+            )
+            if vp.exists():
+                validator_prompt = vp.read_text()
+                break
+
+        gen_request = AgentRequest(
+            artifact_type=artifact_type,
+            event=LifecycleEvent.PRE_GENERATION,
+            spec_content=spec,
+            template_content=template,
+            prompt_content=prompt,
+            upstream_artifacts=upstream,
+            current_artifact=None,
+            correction_constraints=[],
+            metadata={"initiative": str(self._initiative), "artifact_id": artifact_type},
+        )
+        val_request = AgentRequest(
+            artifact_type=artifact_type,
+            event=LifecycleEvent.PRE_VALIDATION,
+            spec_content=spec,
+            template_content=template,
+            prompt_content=validator_prompt or prompt,
+            upstream_artifacts=upstream,
+            current_artifact=None,
+            correction_constraints=[],
+            metadata={"initiative": str(self._initiative)},
+        )
+        return self.run_artifact_lifecycle(gen_request, val_request)
 
     def run_artifact_lifecycle(
         self,
