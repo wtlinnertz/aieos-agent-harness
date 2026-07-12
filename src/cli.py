@@ -526,6 +526,63 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0
 
 
+def cmd_run_artifact(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Run one artifact's lifecycle and emit a machine-readable result.
+
+    The dark-factory conductor's subprocess seam (mirrors ADR-0003's
+    console->harness CLI pattern). Because both repos use ``src`` as their import
+    root, an in-process import would collide; the CLI subprocess is the clean
+    cross-repo boundary. Emits ``{"result": "CONVERGED"|"ESCALATION_NEEDED"}`` on
+    stdout, exit 0; a structured JSON error + non-zero otherwise.
+    """
+    from src.driver import HarnessDriver
+
+    adapters = _build_adapters(config)
+    if not adapters:
+        print(
+            json.dumps({"error": "no_providers", "message": "No providers enabled in config"}),
+            file=sys.stderr,
+        )
+        return 1
+    adapter = next(iter(adapters.values()))
+    driver = HarnessDriver(
+        Path(args.initiative).resolve(),
+        adapter,
+        adapter,
+        aieos_root=Path(args.aieos_root).resolve(),
+    )
+    try:
+        result = driver.run_artifact(args.type)
+    except Exception as exc:
+        print(json.dumps({"error": "run_failed", "message": str(exc)}), file=sys.stderr)
+        return 1
+    print(json.dumps({"result": result.value}))
+    return 0
+
+
+def cmd_read_state(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Emit the ER §1b state block as JSON (the conductor's read_layer_state seam)."""
+    from src.state import read_er_state_block
+
+    initiative = Path(args.initiative).resolve()
+    er_path = initiative / "docs" / "engagement" / "er.md"
+    if not er_path.exists():
+        print(
+            json.dumps({"error": "no_state", "message": f"ER not found: {er_path}"}),
+            file=sys.stderr,
+        )
+        return 1
+    s = read_er_state_block(er_path)
+    print(
+        json.dumps({
+            "current_layer": s.current_layer,
+            "current_artifact": s.current_artifact,
+            "frozen_count": s.frozen_count,
+        })
+    )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -580,6 +637,20 @@ def main(argv: list[str] | None = None) -> int:
     fr.add_argument("--decided-by", help="Human identity (overrides decision JSON)")
 
     # health
+    # run-artifact (dark-factory subprocess seam)
+    ra = subparsers.add_parser(
+        "run-artifact", help="Run one artifact lifecycle; emit JSON result"
+    )
+    ra.add_argument("--type", required=True, help="Artifact type (e.g. PRD)")
+    ra.add_argument("--initiative", required=True, help="Path to initiative project")
+    ra.add_argument("--aieos-root", required=True, help="Path to kit files root")
+
+    # read-state (dark-factory subprocess seam)
+    rs = subparsers.add_parser(
+        "read-state", help="Emit the ER state block as JSON"
+    )
+    rs.add_argument("--initiative", required=True, help="Path to initiative project")
+
     subparsers.add_parser("health", help="Check provider health")
 
     # costs
@@ -629,6 +700,8 @@ def main(argv: list[str] | None = None) -> int:
         "validate": cmd_validate,
         "lifecycle": cmd_lifecycle,
         "freeze": cmd_freeze,
+        "run-artifact": cmd_run_artifact,
+        "read-state": cmd_read_state,
         "health": cmd_health,
         "costs": cmd_costs,
         "research": cmd_research,

@@ -250,3 +250,48 @@ class TestFreezeCommandFunctional:
         }))
         rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
         assert rc == 2
+
+
+import json as _dfjson  # noqa: E402
+from pathlib import Path as _DFPath  # noqa: E402
+
+
+class TestParseSubprocessSeam:
+    def test_run_artifact_requires_all_args(self):
+        with pytest.raises(SystemExit):
+            main(["run-artifact", "--type", "PRD"])  # missing --initiative/--aieos-root
+
+    def test_read_state_requires_initiative(self):
+        with pytest.raises(SystemExit):
+            main(["read-state"])
+
+
+class TestReadStateCommand:
+    def test_emits_state_json(self, tmp_path, capsys):
+        eng = tmp_path / "docs" / "engagement"
+        eng.mkdir(parents=True)
+        (eng / "er.md").write_text(
+            "## 1b\n\n| Field | Value |\n|--|--|\n"
+            "| Current Layer | Layer 4 |\n| Current Artifact | EEK:PRD |\n"
+            "| Frozen Count | 3 |\n"
+        )
+        rc = main(["--config", "nope.yaml", "read-state", "--initiative", str(tmp_path)])
+        assert rc == 0
+        out = _dfjson.loads(capsys.readouterr().out)
+        assert out["current_layer"] == "Layer 4"
+        assert out["frozen_count"] == 3
+
+    def test_missing_er_errors(self, tmp_path, capsys):
+        rc = main(["--config", "nope.yaml", "read-state", "--initiative", str(tmp_path)])
+        assert rc == 1
+        assert _dfjson.loads(capsys.readouterr().err)["error"] == "no_state"
+
+
+class TestRunArtifactCommand:
+    def test_no_providers_errors(self, tmp_path, capsys):
+        rc = main([
+            "--config", "nope.yaml", "run-artifact",
+            "--type", "PRD", "--initiative", str(tmp_path), "--aieos-root", str(tmp_path),
+        ])
+        assert rc == 1
+        assert _dfjson.loads(capsys.readouterr().err)["error"] == "no_providers"
