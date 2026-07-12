@@ -227,3 +227,42 @@ class TestUpstreamDependencies:
 
     def test_sad_requires_prd(self):
         assert UPSTREAM_DEPENDENCIES["SAD"] == ["PRD"]
+
+
+# -----------------------------------------------------------------------
+# 8. Authorized Freeze (ADR-0002 companion to human freeze decision)
+# -----------------------------------------------------------------------
+from src.invariants import check_authorized_freeze  # noqa: E402
+from src.models import DecisionOutcome, FreezeGateDecision  # noqa: E402
+
+
+def _fgd(**kw):
+    return FreezeGateDecision(
+        artifact_id=kw.get("artifact_id", "SAD-TEST-001"),
+        outcome=kw.get("outcome", DecisionOutcome.APPROVE),
+        content_hash=kw.get("content_hash", "abc"),
+        decided_by=kw.get("decided_by", "Todd Linnertz"),
+        auto_freeze_attempted=kw.get("auto_freeze_attempted", False),
+    )
+
+
+class TestAuthorizedFreeze:
+    def test_pass_valid_human_decision(self):
+        result = check_authorized_freeze(_fgd())
+        assert result.passed is True
+        assert result.name == "authorized_freeze"
+
+    def test_fail_auto_freeze_attempted(self):
+        result = check_authorized_freeze(_fgd(auto_freeze_attempted=True))
+        assert result.passed is False
+        assert "auto-freeze" in result.reason
+
+    def test_fail_missing_decided_by(self):
+        result = check_authorized_freeze(_fgd(decided_by="   "))
+        assert result.passed is False
+        assert "decided_by" in result.reason
+
+    def test_conductor_freeze_passes(self):
+        # A conductor submits a valid record with auto_freeze_attempted False.
+        result = check_authorized_freeze(_fgd(decided_by="dark-factory-operator"))
+        assert result.passed is True

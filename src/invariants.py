@@ -12,6 +12,7 @@ from typing import Optional
 
 from src.models import (
     ConvergenceState,
+    FreezeGateDecision,
     InvariantCheck,
     LifecycleEvent,
     ValidationResult,
@@ -260,6 +261,38 @@ def check_disk_based_state(er_path: Path, journal_path: Path) -> InvariantCheck:
     )
     return InvariantCheck(
         name="disk_based_state",
+        passed=passed,
+        reason=reason,
+    )
+
+
+def check_authorized_freeze(decision: FreezeGateDecision) -> InvariantCheck:
+    """Companion to :func:`check_human_freeze_decision` (ADR-0002).
+
+    A freeze is *authorized* only when it carries a real human decision record:
+    a non-empty ``decided_by`` identity and ``auto_freeze_attempted`` False. A
+    dark-factory conductor freeze passes here because it submits a valid decision
+    with ``auto_freeze_attempted=False``; a bare auto-freeze still fails, so the
+    existing human-freeze rule is preserved, not weakened.
+
+    This check is pure over the decision object. It deliberately does NOT verify
+    the content hash against disk -- that check needs the artifact on disk and
+    lives in :func:`src.freeze.apply_freeze_decision`.
+    """
+    problems: list[str] = []
+    if decision.auto_freeze_attempted:
+        problems.append("auto-freeze attempted without a human decision")
+    if not (decision.decided_by and decision.decided_by.strip()):
+        problems.append("missing decided_by identity")
+
+    passed = not problems
+    reason = (
+        "Freeze carries a valid human decision record"
+        if passed
+        else "Freeze not authorized: " + "; ".join(problems)
+    )
+    return InvariantCheck(
+        name="authorized_freeze",
         passed=passed,
         reason=reason,
     )

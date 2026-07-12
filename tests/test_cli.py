@@ -170,3 +170,83 @@ class TestParseLifecycle:
         assert args.command == "lifecycle"
         assert args.type == "TDD"
         assert args.initiative == "./my-project"
+
+
+import json  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from src.freeze import hash_artifact_content  # noqa: E402
+
+
+class TestParseFreeze:
+    def test_freeze_requires_initiative_and_decision(self):
+        with pytest.raises(SystemExit) as exc:
+            main(["freeze", "--artifact", "SAD-TEST-001"])
+        assert exc.value.code != 0
+
+    def test_freeze_parses(self):
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--config", default="harness.yaml")
+        sub = parser.add_subparsers(dest="command", required=True)
+        fr = sub.add_parser("freeze")
+        fr.add_argument("--initiative", required=True)
+        fr.add_argument("--artifact")
+        fr.add_argument("--decision", required=True)
+        fr.add_argument("--decided-by")
+        args = parser.parse_args(
+            ["freeze", "--initiative", "./p", "--decision", "d.json", "--decided-by", "Todd"]
+        )
+        assert args.command == "freeze"
+        assert args.decided_by == "Todd"
+
+
+def _freeze_initiative(tmp_path):
+    sdlc = tmp_path / "docs" / "sdlc"
+    sdlc.mkdir(parents=True)
+    (sdlc / "05-sad.md").write_text(
+        "## Document Control\n\n| Artifact ID | SAD-TEST-001 |\n| Status | FREEZE_PENDING |\n"
+    )
+    return hash_artifact_content((sdlc / "05-sad.md").read_text())
+
+
+class TestFreezeCommandFunctional:
+    def test_freeze_success_exit_zero(self, tmp_path, capsys):
+        h = _freeze_initiative(tmp_path)
+        decision = tmp_path / "decision.json"
+        decision.write_text(json.dumps({
+            "artifact_id": "SAD-TEST-001",
+            "outcome": "APPROVE",
+            "content_hash": h,
+            "decided_by": "Todd",
+        }))
+        rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["status"] == "frozen"
+        assert out["artifact_id"] == "SAD-TEST-001"
+
+    def test_freeze_hash_mismatch_exit_one(self, tmp_path, capsys):
+        _freeze_initiative(tmp_path)
+        decision = tmp_path / "decision.json"
+        decision.write_text(json.dumps({
+            "artifact_id": "SAD-TEST-001",
+            "outcome": "APPROVE",
+            "content_hash": "bad" * 20,
+            "decided_by": "Todd",
+        }))
+        rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
+        assert rc == 1
+        err = json.loads(capsys.readouterr().err)
+        assert err["error"] == "hash_mismatch"
+
+    def test_freeze_unknown_outcome_exit_two(self, tmp_path, capsys):
+        _freeze_initiative(tmp_path)
+        decision = tmp_path / "decision.json"
+        decision.write_text(json.dumps({
+            "artifact_id": "SAD-TEST-001", "outcome": "MAYBE",
+            "content_hash": "x", "decided_by": "Todd",
+        }))
+        rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
+        assert rc == 2

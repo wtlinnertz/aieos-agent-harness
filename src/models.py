@@ -143,3 +143,59 @@ class InvariantCheck:
     name: str
     passed: bool
     reason: str
+
+
+class LifecycleResult(Enum):
+    """Result of driving one artifact through its generate/validate lifecycle.
+
+    The return contract of ``HarnessDriver.run_artifact_lifecycle`` (ADR-0002).
+    CONVERGED = validation reached PASS within the convergence budget.
+    ESCALATION_NEEDED = the budget was exhausted without a PASS; a human is
+    needed. The conductor never turns either result into a FROZEN write.
+    """
+
+    CONVERGED = "CONVERGED"
+    ESCALATION_NEEDED = "ESCALATION_NEEDED"
+
+
+@dataclass
+class FreezeGateDecision:
+    """A human's freeze-gate decision -- the input to ``apply_freeze_decision``.
+
+    This is the serialized record the console and dark factory hand to the
+    ``harness freeze`` CLI (ADR-0003). ``apply_freeze_decision`` is the single
+    authority that turns an *approving* decision into a ``FROZEN`` write; the
+    conductor produces this record but never writes ``FROZEN`` itself (ADR-0002).
+
+    - ``artifact_id`` -- the artifact to freeze (matches its Document Control ID).
+    - ``outcome`` -- the human's DecisionOutcome. Only APPROVE /
+      APPROVE_WITH_CONDITIONS authorize a freeze.
+    - ``content_hash`` -- SHA-256 hex of the artifact the human actually saw.
+      ``apply_freeze_decision`` rejects the freeze if the on-disk artifact no
+      longer matches, so an artifact that changed under the decision cannot be
+      frozen silently (ADR-0003 decision integrity).
+    - ``decided_by`` -- the human identity accountable for the decision. Required.
+    - ``auto_freeze_attempted`` -- True only if an automated path tried to freeze
+      without a human decision; such a decision is always refused.
+    - ``conditions`` -- optional conditions attached to APPROVE_WITH_CONDITIONS.
+    - ``rationale`` -- optional free-text justification.
+    """
+
+    artifact_id: str
+    outcome: DecisionOutcome
+    content_hash: str
+    decided_by: str
+    auto_freeze_attempted: bool = False
+    conditions: list[str] = field(default_factory=list)
+    rationale: str = ""
+
+
+@dataclass
+class FreezeResult:
+    """The outcome of a successful ``apply_freeze_decision`` write."""
+
+    artifact_id: str
+    status: ArtifactStatus
+    path: str
+    decided_by: str
+    frozen_count: Optional[int] = None
