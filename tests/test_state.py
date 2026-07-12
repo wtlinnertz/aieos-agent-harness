@@ -11,6 +11,7 @@ from src.state import (
     read_er_state_block,
     read_frozen_artifacts,
     read_journal_entries,
+    write_artifact_status,
     write_er_state_block,
 )
 
@@ -155,3 +156,71 @@ class TestJournalSeparatorRows:
         assert len(entries) == 1
         assert entries[0]["Artifact"] == "PRD-X-001"
         assert "----" not in entries[0]
+
+
+class TestWriteArtifactStatus:
+    def _make_artifact(self, tmp_path, name, artifact_id, status_text, extra=""):
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True, exist_ok=True)
+        content = (
+            "## Document Control\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            f"| Artifact ID | {artifact_id} |\n"
+            f"| Status | {status_text} |\n"
+            f"{extra}"
+        )
+        (d / name).write_text(content)
+        return tmp_path
+
+    def test_write_then_read_roundtrip(self, tmp_path):
+        root = self._make_artifact(tmp_path, "05-sad.md", "SAD-X-001", "Draft")
+        write_artifact_status(root, "SAD-X-001", ArtifactStatus.FROZEN)
+        assert read_frozen_artifacts(root)["SAD-X-001"] == ArtifactStatus.FROZEN
+
+    def test_fault_states_roundtrip(self, tmp_path):
+        # The new andon states (ADR-0004) must survive the on-disk write->read cycle.
+        root = self._make_artifact(tmp_path, "05-sad.md", "SAD-X-001", "VALIDATED")
+        write_artifact_status(root, "SAD-X-001", ArtifactStatus.HALTED)
+        assert read_frozen_artifacts(root)["SAD-X-001"] == ArtifactStatus.HALTED
+        write_artifact_status(root, "SAD-X-001", ArtifactStatus.FAULTED)
+        assert read_frozen_artifacts(root)["SAD-X-001"] == ArtifactStatus.FAULTED
+
+    def test_returns_written_path(self, tmp_path):
+        root = self._make_artifact(tmp_path, "05-sad.md", "SAD-X-001", "Draft")
+        p = write_artifact_status(root, "SAD-X-001", ArtifactStatus.FROZEN)
+        assert p.name == "05-sad.md"
+
+    def test_preserves_other_content(self, tmp_path):
+        root = self._make_artifact(
+            tmp_path, "05-sad.md", "SAD-X-001", "Draft",
+            extra="\n## Body\n\nArchitecture details here.\n",
+        )
+        write_artifact_status(root, "SAD-X-001", ArtifactStatus.FROZEN)
+        text = (root / "docs" / "sdlc" / "05-sad.md").read_text()
+        assert "Architecture details here." in text
+        assert "| Artifact ID | SAD-X-001 |" in text
+
+    def test_locates_correct_file_among_many(self, tmp_path):
+        self._make_artifact(tmp_path, "03-prd.md", "PRD-X-001", "Frozen")
+        self._make_artifact(tmp_path, "05-sad.md", "SAD-X-001", "Draft")
+        write_artifact_status(tmp_path, "SAD-X-001", ArtifactStatus.FROZEN)
+        arts = read_frozen_artifacts(tmp_path)
+        assert arts["SAD-X-001"] == ArtifactStatus.FROZEN
+        assert arts["PRD-X-001"] == ArtifactStatus.FROZEN  # untouched
+
+    def test_unknown_artifact_id_raises(self, tmp_path):
+        root = self._make_artifact(tmp_path, "05-sad.md", "SAD-X-001", "Draft")
+        with pytest.raises(ValueError, match="No artifact with ID"):
+            write_artifact_status(root, "NOPE-001", ArtifactStatus.FROZEN)
+
+    def test_no_status_cell_raises(self, tmp_path):
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "05-sad.md").write_text("| Artifact ID | SAD-X-001 |\n")
+        with pytest.raises(ValueError, match="no Status cell"):
+            write_artifact_status(tmp_path, "SAD-X-001", ArtifactStatus.FROZEN)
+
+    def test_no_sdlc_dir_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="No docs/sdlc"):
+            write_artifact_status(tmp_path, "SAD-X-001", ArtifactStatus.FROZEN)
