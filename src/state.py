@@ -103,6 +103,59 @@ def is_artifact_frozen(initiative_path: Path, artifact_id: str) -> bool:
     return artifacts.get(artifact_id) == ArtifactStatus.FROZEN
 
 
+def write_artifact_status(
+    initiative_path: Path, artifact_id: str, status: ArtifactStatus
+) -> Path:
+    """Write the Document Control ``| Status |`` cell for one artifact.
+
+    The writer counterpart to :func:`read_frozen_artifacts` (FR-018): locates
+    the ``docs/sdlc`` file whose ``| Artifact ID |`` matches ``artifact_id`` and
+    replaces its ``| Status |`` cell with ``status.value`` -- the canonical
+    uppercase token (e.g. ``FROZEN``, ``FREEZE_PENDING``, ``HALTED``) that
+    :func:`read_frozen_artifacts` parses back, so a write round-trips.
+
+    Returns the Path written. Raises ``ValueError`` if no artifact file matches
+    the ID, or if the matched file has no Status cell -- failing loudly so a
+    caller (e.g. ``apply_freeze_decision``) never believes a write succeeded
+    when it did not. This function is the single low-level status writer; freeze
+    authority and journalling live above it (ADR-0002).
+    """
+    sdlc_dir = initiative_path / "docs" / "sdlc"
+    if not sdlc_dir.exists():
+        raise ValueError(f"No docs/sdlc directory under {initiative_path}")
+
+    target: Optional[Path] = None
+    for md_file in sorted(sdlc_dir.glob("*.md")):
+        text = md_file.read_text()
+        id_match = re.search(
+            r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE
+        )
+        if id_match and id_match.group(1).strip() == artifact_id:
+            target = md_file
+            break
+
+    if target is None:
+        raise ValueError(
+            f"No artifact with ID {artifact_id!r} found under {sdlc_dir}"
+        )
+
+    text = target.read_text()
+    status_pattern = r"(\|\s*Status\s*\|)\s*.*?\s*\|"
+    if not re.search(status_pattern, text, re.IGNORECASE):
+        raise ValueError(
+            f"Artifact {artifact_id!r} ({target.name}) has no Status cell"
+        )
+    new_text = re.sub(
+        status_pattern,
+        rf"\1 {status.value} |",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    target.write_text(new_text)
+    return target
+
+
 def append_journal_entry(
     journal_path: Path, entry_type: str, fields: dict
 ) -> None:
