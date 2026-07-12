@@ -29,3 +29,4 @@ Thumbs.db
 
 # Harness config (contains project-specific settings)
 harness.yaml
+.coverage
