@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -443,6 +444,88 @@ def cmd_research(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0 if result.target_met else 1
 
 
+def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Freeze an artifact through the single freeze authority (ADR-0003).
+
+    The seam a non-Python driver (the console) shells out to. Reads a serialized
+    FreezeGateDecision from --decision, applies it via apply_freeze_decision, and
+    speaks a machine-readable stdout + exit-code contract: exit 0 with a JSON
+    payload on success; non-zero with a structured JSON error (and nothing
+    written) on any refused freeze.
+    """
+    from src.freeze import FreezeError, apply_freeze_decision
+    from src.models import DecisionOutcome, FreezeGateDecision
+
+    initiative_path = Path(args.initiative).resolve()
+    decision_path = Path(args.decision).resolve()
+    if not decision_path.exists():
+        print(
+            json.dumps({"error": "bad_request", "message": f"Decision file not found: {decision_path}"}),
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        raw = json.loads(decision_path.read_text())
+    except json.JSONDecodeError as exc:
+        print(
+            json.dumps({"error": "bad_request", "message": f"Invalid decision JSON: {exc}"}),
+            file=sys.stderr,
+        )
+        return 2
+
+    # --decided-by / --artifact override the JSON when provided.
+    artifact_id = args.artifact or raw.get("artifact_id", "")
+    decided_by = args.decided_by or raw.get("decided_by", "")
+    outcome_str = str(raw.get("outcome", "")).upper()
+    try:
+        outcome = DecisionOutcome(outcome_str)
+    except ValueError:
+        print(
+            json.dumps({"error": "bad_request", "message": f"Unknown decision outcome: {outcome_str!r}"}),
+            file=sys.stderr,
+        )
+        return 2
+
+    decision = FreezeGateDecision(
+        artifact_id=artifact_id,
+        outcome=outcome,
+        content_hash=raw.get("content_hash", ""),
+        decided_by=decided_by,
+        auto_freeze_attempted=bool(raw.get("auto_freeze_attempted", False)),
+        conditions=list(raw.get("conditions", [])),
+        rationale=raw.get("rationale", ""),
+    )
+
+    # Full bookkeeping (frozen count + journal) when the engagement record exists.
+    er_path = initiative_path / "docs" / "engagement" / "er.md"
+    journal_path = initiative_path / "docs" / "engagement" / "journal.md"
+
+    try:
+        result = apply_freeze_decision(
+            initiative_path,
+            decision,
+            er_path=er_path if er_path.exists() else None,
+            journal_path=journal_path if journal_path.exists() else None,
+        )
+    except FreezeError as exc:
+        print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
+        return 1
+
+    print(
+        json.dumps(
+            {
+                "status": "frozen",
+                "artifact_id": result.artifact_id,
+                "path": result.path,
+                "frozen_count": result.frozen_count,
+                "decided_by": result.decided_by,
+            }
+        )
+    )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -484,6 +567,17 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument(
         "--initiative", required=True, help="Path to initiative project"
     )
+
+    # freeze
+    fr = subparsers.add_parser(
+        "freeze", help="Freeze an artifact from a decision record (ADR-0003)"
+    )
+    fr.add_argument("--initiative", required=True, help="Path to initiative project")
+    fr.add_argument("--artifact", help="Artifact ID (overrides decision JSON)")
+    fr.add_argument(
+        "--decision", required=True, help="Path to serialized FreezeGateDecision JSON"
+    )
+    fr.add_argument("--decided-by", help="Human identity (overrides decision JSON)")
 
     # health
     subparsers.add_parser("health", help="Check provider health")
@@ -534,6 +628,7 @@ def main(argv: list[str] | None = None) -> int:
         "generate": cmd_generate,
         "validate": cmd_validate,
         "lifecycle": cmd_lifecycle,
+        "freeze": cmd_freeze,
         "health": cmd_health,
         "costs": cmd_costs,
         "research": cmd_research,

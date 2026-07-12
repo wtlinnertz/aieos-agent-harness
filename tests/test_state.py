@@ -224,3 +224,28 @@ class TestWriteArtifactStatus:
     def test_no_sdlc_dir_raises(self, tmp_path):
         with pytest.raises(ValueError, match="No docs/sdlc"):
             write_artifact_status(tmp_path, "SAD-X-001", ArtifactStatus.FROZEN)
+
+
+class TestFindArtifactPath:
+    def test_no_sdlc_dir_raises(self, tmp_path):
+        from src.state import find_artifact_path
+
+        with pytest.raises(ValueError, match="No docs/sdlc"):
+            find_artifact_path(tmp_path, "SAD-X-001")
+
+    def test_unknown_id_raises(self, tmp_path):
+        from src.state import find_artifact_path
+
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True)
+        (d / "01.md").write_text("| Artifact ID | PRD-X-001 |\n| Status | DRAFT |\n")
+        with pytest.raises(ValueError, match="No artifact with ID"):
+            find_artifact_path(tmp_path, "NOPE-001")
+
+    def test_finds_matching_file(self, tmp_path):
+        from src.state import find_artifact_path
+
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True)
+        (d / "05-sad.md").write_text("| Artifact ID | SAD-X-001 |\n| Status | DRAFT |\n")
+        assert find_artifact_path(tmp_path, "SAD-X-001").name == "05-sad.md"

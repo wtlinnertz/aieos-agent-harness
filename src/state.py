@@ -225,3 +225,29 @@ def read_journal_entries(journal_path: Path) -> list[dict]:
         entries.append(entry)
 
     return entries
+
+
+def find_artifact_path(initiative_path: Path, artifact_id: str) -> Path:
+    """Return the ``docs/sdlc`` file whose ``| Artifact ID |`` matches.
+
+    The read-side counterpart to the resolver inside :func:`write_artifact_status`,
+    exposed so callers that need the artifact's *content* before writing (e.g.
+    ``apply_freeze_decision`` verifying a content hash) can locate the file
+    without a second write. Raises ``ValueError`` if there is no ``docs/sdlc``
+    directory or no artifact with that ID.
+    """
+    sdlc_dir = initiative_path / "docs" / "sdlc"
+    if not sdlc_dir.exists():
+        raise ValueError(f"No docs/sdlc directory under {initiative_path}")
+
+    for md_file in sorted(sdlc_dir.glob("*.md")):
+        text = md_file.read_text()
+        id_match = re.search(
+            r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE
+        )
+        if id_match and id_match.group(1).strip() == artifact_id:
+            return md_file
+
+    raise ValueError(
+        f"No artifact with ID {artifact_id!r} found under {sdlc_dir}"
+    )

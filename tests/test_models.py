@@ -243,3 +243,49 @@ class TestInvariantCheck:
         ic = InvariantCheck(name="test", passed=True, reason="ok")
         assert ic.passed is True
         assert ic.name == "test"
+
+
+class TestLifecycleResult:
+    def test_values(self):
+        from src.models import LifecycleResult
+
+        assert LifecycleResult.CONVERGED.value == "CONVERGED"
+        assert LifecycleResult.ESCALATION_NEEDED.value == "ESCALATION_NEEDED"
+        assert len(LifecycleResult) == 2
+
+
+class TestFreezeGateDecision:
+    def test_construction_and_defaults(self):
+        from src.models import DecisionOutcome, FreezeGateDecision
+
+        d = FreezeGateDecision(
+            artifact_id="SAD-TEST-001",
+            outcome=DecisionOutcome.APPROVE,
+            content_hash="abc123",
+            decided_by="Todd",
+        )
+        assert d.auto_freeze_attempted is False
+        assert d.conditions == []
+        assert d.rationale == ""
+
+    def test_conditions_independent(self):
+        from src.models import DecisionOutcome, FreezeGateDecision
+
+        a = FreezeGateDecision("A", DecisionOutcome.APPROVE, "h", "Todd")
+        b = FreezeGateDecision("B", DecisionOutcome.APPROVE, "h", "Todd")
+        a.conditions.append("x")
+        assert b.conditions == []
+
+
+class TestFreezeResult:
+    def test_construction(self):
+        from src.models import ArtifactStatus, FreezeResult
+
+        r = FreezeResult(
+            artifact_id="SAD-TEST-001",
+            status=ArtifactStatus.FROZEN,
+            path="/x/05-sad.md",
+            decided_by="Todd",
+        )
+        assert r.frozen_count is None
+        assert r.status == ArtifactStatus.FROZEN
