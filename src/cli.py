@@ -44,6 +44,14 @@ def _build_adapters(config: HarnessConfig) -> dict[str, object]:
             adapters[name] = ConvergingMockAdapter(
                 model_name=pconf.model or "converging-mock-v1"
             )
+        elif name == "mock_fail":
+            from src.adapters.converging_mock import ConvergingMockAdapter
+
+            adapters[name] = ConvergingMockAdapter(
+                provider_name="mock_fail",
+                model_name=pconf.model or "failing-mock-v1",
+                always_fail=True,
+            )
 
     return adapters
 

@@ -38,3 +38,34 @@ class TestConvergingMock:
         assert a.health() == HealthStatus.OK
         assert a.cost_estimate(_req(LifecycleEvent.PRE_GENERATION)) == 0.0
         assert a.provider_name == "mock"
+
+
+class TestAlwaysFail:
+    def test_validation_returns_fail(self):
+        a = ConvergingMockAdapter(always_fail=True)
+        resp = a.invoke(_req(LifecycleEvent.PRE_VALIDATION))
+        assert json.loads(resp.content)["status"] == "FAIL"
+
+    def test_generation_still_returns_content(self):
+        a = ConvergingMockAdapter(always_fail=True)
+        resp = a.invoke(_req(LifecycleEvent.PRE_GENERATION))
+        assert "PRD" in resp.content
+
+    def test_run_artifact_escalates_with_failing_mock(self, tmp_path):
+        from src.driver import HarnessDriver
+        from src.models import LifecycleResult
+
+        aieos_root = tmp_path / "aieos"
+        kit = aieos_root / "aieos-eek"
+        for sub in ("specs", "artifacts", "prompts"):
+            (kit / "docs" / sub).mkdir(parents=True)
+        (kit / "docs" / "specs" / "prd-spec.md").write_text("# prd spec")
+        (kit / "docs" / "artifacts" / "prd-template.md").write_text("t")
+        (kit / "docs" / "prompts" / "prd-prompt.md").write_text("p")
+        init = tmp_path / "init"
+        init.mkdir()
+        failing = ConvergingMockAdapter(always_fail=True)
+        driver = HarnessDriver(init, failing, failing, max_iterations=2, aieos_root=aieos_root)
+        assert driver.run_artifact("PRD") == LifecycleResult.ESCALATION_NEEDED
+        # nothing persisted on escalation
+        assert not (init / "docs" / "sdlc" / "prd.md").exists()

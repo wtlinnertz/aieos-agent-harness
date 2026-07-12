@@ -29,6 +29,19 @@ _PASS_VALIDATION = json.dumps(
     }
 )
 
+_FAIL_VALIDATION = json.dumps(
+    {
+        "status": "FAIL",
+        "summary": "A hard gate is unsatisfied.",
+        "hard_gates": {"completeness": "FAIL", "structure": "PASS"},
+        "blocking_issues": [
+            {"gate": "completeness", "description": "section missing", "location": "s1"}
+        ],
+        "warnings": [],
+        "completeness_score": 30,
+    }
+)
+
 
 class ConvergingMockAdapter:
     """AgentAdapter that generates plausible content and always validates PASS."""
@@ -37,9 +50,15 @@ class ConvergingMockAdapter:
         self,
         provider_name: str = "mock",
         model_name: str = "converging-mock-v1",
+        *,
+        always_fail: bool = False,
     ) -> None:
         self._provider_name = provider_name
         self._model_name = model_name
+        # always_fail: validation always returns FAIL, so the convergence loop
+        # exhausts its budget and the driver returns ESCALATION_NEEDED. Used to
+        # prove the andon/escalation surface end-to-end without real AI.
+        self._always_fail = always_fail
 
     @property
     def provider_name(self) -> str:
@@ -51,7 +70,7 @@ class ConvergingMockAdapter:
 
     def invoke(self, request: AgentRequest) -> AgentResponse:
         if request.event in _VALIDATION_EVENTS:
-            content = _PASS_VALIDATION
+            content = _FAIL_VALIDATION if self._always_fail else _PASS_VALIDATION
         else:
             content = (
                 f"# {request.artifact_type}\n\n"
