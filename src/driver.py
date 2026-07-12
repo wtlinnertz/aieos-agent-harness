@@ -120,7 +120,42 @@ class HarnessDriver:
             correction_constraints=[],
             metadata={"initiative": str(self._initiative)},
         )
-        return self.run_artifact_lifecycle(gen_request, val_request)
+
+        loop = ConvergenceLoop(
+            self._gen, self._val, max_iterations=self._max_iterations
+        )
+        response, result, _state = loop.run(gen_request, val_request)
+        if result.status == "PASS":
+            # Drive the converged artifact to FREEZE_PENDING on disk (ADR-0002:
+            # the conductor produces a freezable artifact and no further -- it
+            # never writes FROZEN). A human then freezes via apply_freeze_decision.
+            self._persist_freeze_pending(artifact_type, response.content)
+            return LifecycleResult.CONVERGED
+        return LifecycleResult.ESCALATION_NEEDED
+
+    def _artifact_id(self, artifact_type: str) -> str:
+        slug = self._initiative.name.upper().replace(" ", "-") or "INIT"
+        return f"{artifact_type}-{slug}-001"
+
+    def _persist_freeze_pending(self, artifact_type: str, content: str) -> Path:
+        """Write the converged artifact to docs/sdlc with a Document Control
+        block at FREEZE_PENDING (FR-018 canonical block). Idempotent per type."""
+        artifact_id = self._artifact_id(artifact_type)
+        sdlc = self._initiative / "docs" / "sdlc"
+        sdlc.mkdir(parents=True, exist_ok=True)
+        doc = (
+            f"# {artifact_type}\n\n"
+            "## Document Control\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            f"| Artifact ID | {artifact_id} |\n"
+            "| Status | FREEZE_PENDING |\n"
+            "| Last Validation | PASS |\n\n"
+            f"{content}\n"
+        )
+        path = sdlc / f"{artifact_type.lower()}.md"
+        path.write_text(doc)
+        return path
 
     def run_artifact_lifecycle(
         self,

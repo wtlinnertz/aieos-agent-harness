@@ -38,6 +38,12 @@ def _build_adapters(config: HarnessConfig) -> dict[str, object]:
             adapters[name] = OpenAIAdapter(
                 model=pconf.model, max_tokens=pconf.max_tokens
             )
+        elif name == "mock":
+            from src.adapters.converging_mock import ConvergingMockAdapter
+
+            adapters[name] = ConvergingMockAdapter(
+                model_name=pconf.model or "converging-mock-v1"
+            )
 
     return adapters
 
