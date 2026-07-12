@@ -217,3 +217,25 @@ class TestRunArtifact:
         (tmp_path / "init").mkdir()
         with pytest.raises(ValueError, match="No kit spec"):
             driver.run_artifact("PRD")
+
+
+class TestRunArtifactPersistsFreezePending:
+    def test_converged_writes_freeze_pending_artifact(self, tmp_path):
+        from src.adapters.converging_mock import ConvergingMockAdapter
+        from src.models import ArtifactStatus
+        from src.state import read_frozen_artifacts
+
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        mock = ConvergingMockAdapter()
+        driver = HarnessDriver(initiative, mock, mock, aieos_root=aieos_root)
+
+        assert driver.run_artifact("PRD") == LifecycleResult.CONVERGED
+        # artifact persisted at FREEZE_PENDING (conductor never writes FROZEN)
+        arts = read_frozen_artifacts(initiative)
+        assert any(v == ArtifactStatus.FREEZE_PENDING for v in arts.values())
+        pending_id = next(k for k, v in arts.items() if v == ArtifactStatus.FREEZE_PENDING)
+        assert pending_id.startswith("PRD-")
