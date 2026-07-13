@@ -295,3 +295,42 @@ class TestRunArtifactCommand:
         ])
         assert rc == 1
         assert _dfjson.loads(capsys.readouterr().err)["error"] == "no_providers"
+
+
+class TestMarkStatusCommand:
+    def _artifact(self, tmp_path, status="FREEZE_PENDING"):
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True)
+        (d / "05-sad.md").write_text(
+            "## Document Control\n\n| Artifact ID | SAD-X-001 |\n"
+            f"| Status | {status} |\n"
+        )
+
+    def test_marks_faulted(self, tmp_path, capsys):
+        self._artifact(tmp_path)
+        rc = main(["--config", "n.yaml", "mark-status", "--initiative", str(tmp_path),
+                   "--artifact", "SAD-X-001", "--status", "FAULTED"])
+        assert rc == 0
+        assert _dfjson.loads(capsys.readouterr().out)["status"] == "FAULTED"
+        from src.state import read_frozen_artifacts
+        from src.models import ArtifactStatus
+        assert read_frozen_artifacts(tmp_path)["SAD-X-001"] == ArtifactStatus.FAULTED
+
+    def test_marks_halted(self, tmp_path, capsys):
+        self._artifact(tmp_path)
+        rc = main(["--config", "n.yaml", "mark-status", "--initiative", str(tmp_path),
+                   "--artifact", "SAD-X-001", "--status", "HALTED"])
+        assert rc == 0
+
+    def test_refuses_frozen(self, tmp_path, capsys):
+        self._artifact(tmp_path)
+        rc = main(["--config", "n.yaml", "mark-status", "--initiative", str(tmp_path),
+                   "--artifact", "SAD-X-001", "--status", "FROZEN"])
+        assert rc == 2
+        assert _dfjson.loads(capsys.readouterr().err)["error"] == "bad_status"
+
+    def test_unknown_artifact_errors(self, tmp_path, capsys):
+        self._artifact(tmp_path)
+        rc = main(["--config", "n.yaml", "mark-status", "--initiative", str(tmp_path),
+                   "--artifact", "NOPE-001", "--status", "HALTED"])
+        assert rc == 1

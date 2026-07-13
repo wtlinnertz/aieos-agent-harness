@@ -597,6 +597,36 @@ def cmd_read_state(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0
 
 
+def cmd_mark_status(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Write an artifact's andon fault status (HALTED/FAULTED) to its Document
+    Control block (ADR-0004). This is the andon status writer, distinct from the
+    freeze writer: it REFUSES anything but HALTED/FAULTED, so the single-FROZEN-
+    writer invariant (apply_freeze_decision) can never be bypassed through here.
+    """
+    from src.models import ArtifactStatus
+    from src.state import write_artifact_status
+
+    status = args.status.upper()
+    if status not in ("HALTED", "FAULTED"):
+        print(
+            json.dumps({
+                "error": "bad_status",
+                "message": "mark-status writes only HALTED/FAULTED; FROZEN goes through `freeze`",
+            }),
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        path = write_artifact_status(
+            Path(args.initiative).resolve(), args.artifact, ArtifactStatus(status)
+        )
+    except ValueError as exc:
+        print(json.dumps({"error": "not_found", "message": str(exc)}), file=sys.stderr)
+        return 1
+    print(json.dumps({"status": status, "artifact": args.artifact, "path": str(path)}))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -665,6 +695,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     rs.add_argument("--initiative", required=True, help="Path to initiative project")
 
+    # mark-status (andon fault writer — HALTED/FAULTED only)
+    ms = subparsers.add_parser(
+        "mark-status", help="Write an artifact andon fault status (HALTED/FAULTED)"
+    )
+    ms.add_argument("--initiative", required=True)
+    ms.add_argument("--artifact", required=True, help="Artifact ID")
+    ms.add_argument("--status", required=True, help="HALTED or FAULTED")
+
     subparsers.add_parser("health", help="Check provider health")
 
     # costs
@@ -714,6 +752,7 @@ def main(argv: list[str] | None = None) -> int:
         "validate": cmd_validate,
         "lifecycle": cmd_lifecycle,
         "freeze": cmd_freeze,
+        "mark-status": cmd_mark_status,
         "run-artifact": cmd_run_artifact,
         "read-state": cmd_read_state,
         "health": cmd_health,
