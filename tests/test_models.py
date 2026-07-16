@@ -251,7 +251,10 @@ class TestLifecycleResult:
 
         assert LifecycleResult.CONVERGED.value == "CONVERGED"
         assert LifecycleResult.ESCALATION_NEEDED.value == "ESCALATION_NEEDED"
-        assert len(LifecycleResult) == 2
+        # G-13: frozen artifacts are immutable; run_artifact short-circuits here
+        # rather than regenerating over a human's recorded approval.
+        assert LifecycleResult.ALREADY_FROZEN.value == "ALREADY_FROZEN"
+        assert len(LifecycleResult) == 3
 
 
 class TestFreezeGateDecision:

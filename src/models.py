@@ -152,10 +152,16 @@ class LifecycleResult(Enum):
     CONVERGED = validation reached PASS within the convergence budget.
     ESCALATION_NEEDED = the budget was exhausted without a PASS; a human is
     needed. The conductor never turns either result into a FROZEN write.
+    ALREADY_FROZEN = the target artifact is already FROZEN, so there is nothing
+    to do and nothing may be written (G-13). A frozen artifact is immutable:
+    regenerating over it would destroy a human-approved decision. Returned
+    BEFORE any provider call, so a re-walk of a partially-frozen initiative is
+    both safe and free. Callers treat it as "this node is done, move on".
     """
 
     CONVERGED = "CONVERGED"
     ESCALATION_NEEDED = "ESCALATION_NEEDED"
+    ALREADY_FROZEN = "ALREADY_FROZEN"
 
 
 @dataclass
