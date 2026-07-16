@@ -219,6 +219,100 @@ class TestRunArtifact:
             driver.run_artifact("PRD")
 
 
+class TestFrozenArtifactsAreImmutable:
+    """G-13: a FROZEN artifact must never be regenerated over.
+
+    Found by the real-AI dogfood 2026-07-15: the conductor skipped nodes only
+    via its own state file and _persist_freeze_pending wrote unconditionally, so
+    a converged run over a FROZEN artifact silently destroyed a human approval.
+    """
+
+    def _frozen_artifact(self, initiative, artifact_type="PRD"):
+        sdlc = initiative / "docs" / "sdlc"
+        sdlc.mkdir(parents=True, exist_ok=True)
+        slug = initiative.name.upper().replace(" ", "-")
+        path = sdlc / f"{artifact_type.lower()}.md"
+        path.write_text(
+            "## Document Control\n\n"
+            f"| Artifact ID | {artifact_type}-{slug}-001 |\n"
+            "| Status | FROZEN |\n\n"
+            "Human-approved content. Must survive.\n"
+        )
+        return path
+
+    def test_run_artifact_returns_already_frozen_without_calling_provider(self, tmp_path):
+        """The guard must fire BEFORE generation -- free and safe, not just safe."""
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        self._frozen_artifact(initiative, "PRD")
+
+        class ExplodingAdapter(MockAdapter):
+            def invoke(self, request):  # pragma: no cover - must never run
+                raise AssertionError("provider called against a FROZEN artifact")
+
+        driver = HarnessDriver(
+            initiative, ExplodingAdapter(), ExplodingAdapter(), aieos_root=aieos_root
+        )
+        assert driver.run_artifact("PRD") == LifecycleResult.ALREADY_FROZEN
+
+    def test_frozen_content_is_untouched(self, tmp_path):
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        path = self._frozen_artifact(initiative, "PRD")
+        before = path.read_text()
+
+        driver = HarnessDriver(
+            initiative, MockAdapter(),
+            MockAdapter(preset_responses={"PRD": _PASS}),
+            aieos_root=aieos_root,
+        )
+        driver.run_artifact("PRD")
+        assert path.read_text() == before
+        assert read_frozen_artifacts(initiative)[
+            f"PRD-{initiative.name.upper()}-001"
+        ] == ArtifactStatus.FROZEN
+
+    def test_persist_guard_refuses_and_writes_nothing(self, tmp_path):
+        """Defense in depth: even called directly, it must not clobber FROZEN."""
+        from src.driver import FrozenArtifactError
+
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        path = self._frozen_artifact(initiative, "SAD")
+        before = path.read_text()
+
+        driver = HarnessDriver(initiative, MockAdapter(), MockAdapter())
+        with pytest.raises(FrozenArtifactError):
+            driver._persist_freeze_pending("SAD", "malicious replacement")
+        assert path.read_text() == before
+
+    def test_non_frozen_artifact_is_still_regenerated(self, tmp_path):
+        """The guard must not over-fire: FREEZE_PENDING is fair game."""
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        sdlc = initiative / "docs" / "sdlc"
+        sdlc.mkdir(parents=True)
+        slug = initiative.name.upper()
+        (sdlc / "prd.md").write_text(
+            f"| Artifact ID | PRD-{slug}-001 |\n| Status | FREEZE_PENDING |\n"
+        )
+        driver = HarnessDriver(
+            initiative, MockAdapter(),
+            MockAdapter(preset_responses={"PRD": _PASS}),
+            aieos_root=aieos_root,
+        )
+        assert driver.run_artifact("PRD") == LifecycleResult.CONVERGED
+
+
 class TestRunArtifactPersistsFreezePending:
     def test_converged_writes_freeze_pending_artifact(self, tmp_path):
         from src.adapters.converging_mock import ConvergingMockAdapter

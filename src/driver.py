@@ -24,13 +24,32 @@ from src.convergence import ConvergenceLoop
 from src.freeze import apply_freeze_decision
 from src.models import (
     AgentRequest,
+    ArtifactStatus,
     ERStateBlock,
     LifecycleEvent,
     FreezeGateDecision,
     FreezeResult,
     LifecycleResult,
 )
-from src.state import read_er_state_block
+from src.state import read_er_state_block, read_frozen_artifacts
+
+
+class FrozenArtifactError(RuntimeError):
+    """Refused to write over a FROZEN artifact (G-13).
+
+    A frozen artifact is immutable: it carries a human's recorded approval, and
+    overwriting it destroys that decision silently. This is raised by the
+    persist guard as defense in depth -- ``run_artifact`` normally short-circuits
+    to ``LifecycleResult.ALREADY_FROZEN`` long before a caller gets here.
+    """
+
+    def __init__(self, artifact_id: str, path: Path) -> None:
+        self.artifact_id = artifact_id
+        self.path = path
+        super().__init__(
+            f"refusing to overwrite FROZEN artifact {artifact_id} at {path}; "
+            "a frozen artifact is immutable (ADR-0002 freeze authority)"
+        )
 
 
 class HarnessDriver:
@@ -78,6 +97,16 @@ class HarnessDriver:
             raise ValueError(
                 "run_artifact requires aieos_root (kit files location) at construction"
             )
+
+        # G-13: a FROZEN artifact is immutable. Check BEFORE any provider call --
+        # regenerating over a human's recorded approval would destroy it, and
+        # doing so after paying for generation would be doubly wasteful. This is
+        # what makes re-walking a partially-frozen initiative safe and free: a
+        # real initiative always has frozen upstream artifacts, so the conductor
+        # must be able to pass over them without touching them.
+        if self._is_frozen(artifact_type):
+            return LifecycleResult.ALREADY_FROZEN
+
         from src.cli import _collect_upstream_artifacts, _resolve_kit_files
 
         spec, template, prompt = _resolve_kit_files(self._aieos_root, artifact_type)
@@ -137,11 +166,35 @@ class HarnessDriver:
         slug = self._initiative.name.upper().replace(" ", "-") or "INIT"
         return f"{artifact_type}-{slug}-001"
 
+    def _is_frozen(self, artifact_type: str) -> bool:
+        """Is this artifact type already FROZEN on disk? (G-13)
+
+        Reads the canonical Document Control blocks -- the artifacts themselves
+        are the source of truth, not any caller's own bookkeeping. A conductor
+        that tracks completion in its own state file will silently regenerate
+        over frozen work the moment that file is missing or stale.
+        """
+        artifact_id = self._artifact_id(artifact_type)
+        return (
+            read_frozen_artifacts(self._initiative).get(artifact_id)
+            is ArtifactStatus.FROZEN
+        )
+
     def _persist_freeze_pending(self, artifact_type: str, content: str) -> Path:
         """Write the converged artifact to docs/sdlc with a Document Control
-        block at FREEZE_PENDING (FR-018 canonical block). Idempotent per type."""
+        block at FREEZE_PENDING (FR-018 canonical block). Idempotent per type.
+
+        Refuses to overwrite a FROZEN artifact (G-13). ``run_artifact`` already
+        short-circuits on frozen, so reaching this guard means a caller drove
+        generation at a frozen target some other way -- write nothing and say so
+        loudly rather than destroying an approval quietly.
+        """
         artifact_id = self._artifact_id(artifact_type)
         sdlc = self._initiative / "docs" / "sdlc"
+        if self._is_frozen(artifact_type):
+            raise FrozenArtifactError(
+                artifact_id, sdlc / f"{artifact_type.lower()}.md"
+            )
         sdlc.mkdir(parents=True, exist_ok=True)
         doc = (
             f"# {artifact_type}\n\n"
