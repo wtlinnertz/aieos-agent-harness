@@ -19,6 +19,34 @@ from src.models import (
 logger = logging.getLogger(__name__)
 
 
+class TruncatedGenerationError(RuntimeError):
+    """Generation stopped at the output ceiling, so the artifact is incomplete (G-7).
+
+    Raised instead of validating-and-retrying, because a truncated artifact is
+    structurally incomplete by construction: it can never satisfy the spec's
+    hard gates no matter how many times it is regenerated at the same ceiling.
+    The old behaviour paid for the full convergence budget (~6 provider calls)
+    to relearn that, then reported a generic ESCALATION_NEEDED that looked
+    identical to a genuine quality failure.
+
+    This is a configuration fault with an obvious operator action -- raise
+    max_tokens -- so it stops the run loudly on the FIRST call and names the
+    ceiling it hit.
+    """
+
+    def __init__(self, artifact_type: str, iteration: int, tokens_out: int) -> None:
+        self.artifact_type = artifact_type
+        self.iteration = iteration
+        self.tokens_out = tokens_out
+        super().__init__(
+            f"{artifact_type} generation truncated at the provider's output "
+            f"ceiling on iteration {iteration} ({tokens_out} output tokens). "
+            "The artifact is incomplete and cannot pass validation; retrying at "
+            "the same ceiling would burn the convergence budget for nothing. "
+            "Raise max_tokens for this provider in harness.yaml."
+        )
+
+
 def parse_validation_result(response: AgentResponse) -> ValidationResult:
     """Extract JSON from response content and parse into ValidationResult.
 
@@ -121,6 +149,17 @@ class ConvergenceLoop:
 
             # Step 1: Generate
             gen_response = self._gen.invoke(current_gen_request)
+
+            # G-7: stop the moment the provider says it ran out of room. Do not
+            # spend a validation call confirming that an artifact cut off
+            # mid-sentence fails its gates, and do not regenerate it identically
+            # for the rest of the budget.
+            if gen_response.truncated:
+                raise TruncatedGenerationError(
+                    val_request.artifact_type,
+                    state.current_iteration,
+                    gen_response.tokens_out,
+                )
 
             # Step 2: Validate (fresh request with generated content)
             validation_request = AgentRequest(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 
@@ -10,12 +11,32 @@ from src.adapters.base import AgentAdapter
 from src.models import AgentRequest, AgentResponse, HealthStatus
 
 
-# Pricing per 1K tokens (defaults)
+logger = logging.getLogger(__name__)
+
+# Pricing per 1K tokens (defaults).
+#
+# G-12: an unpriced model must not silently inherit another model's rate -- see
+# the note in adapters/anthropic.py. Unknown models price at 0.0 and log.
 _DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "gpt-4o": {"input": 0.005, "output": 0.015},
     "gpt-4o-mini": {"input": 0.00015, "output": 0.0006},
     "gpt-4-turbo": {"input": 0.01, "output": 0.03},
 }
+
+_UNKNOWN_PRICING: dict[str, float] = {"input": 0.0, "output": 0.0}
+
+
+def _pricing_for(model: str) -> dict[str, float]:
+    """Pricing for ``model``, or a loud zero if we don't know it (G-12)."""
+    pricing = _DEFAULT_PRICING.get(model)
+    if pricing is None:
+        logger.warning(
+            "No pricing entry for model %r; reporting cost 0.0. Add it to "
+            "_DEFAULT_PRICING rather than trusting this number.",
+            model,
+        )
+        return _UNKNOWN_PRICING
+    return pricing
 
 
 class OpenAIAdapter:
@@ -111,9 +132,7 @@ class OpenAIAdapter:
         tokens_out = response.usage.completion_tokens
 
         # Calculate cost
-        pricing = _DEFAULT_PRICING.get(
-            self._model, {"input": 0.005, "output": 0.015}
-        )
+        pricing = _pricing_for(self._model)
         cost_usd = (
             (tokens_in / 1000) * pricing["input"]
             + (tokens_out / 1000) * pricing["output"]
@@ -140,6 +159,10 @@ class OpenAIAdapter:
                 "id": response.id,
                 "finish_reason": choice.finish_reason,
             },
+            # G-7: same signal as Anthropic's stop_reason == "max_tokens",
+            # spelled differently. Normalizing here is the whole point of the
+            # field -- the convergence loop must not learn provider dialects.
+            truncated=(choice.finish_reason == "length"),
             human_author=request.metadata.get("human_author"),
             input_content_hash=input_hash,
         )
@@ -166,9 +189,7 @@ class OpenAIAdapter:
             estimated_input_tokens * 2, self._max_tokens
         )
 
-        pricing = _DEFAULT_PRICING.get(
-            self._model, {"input": 0.005, "output": 0.015}
-        )
+        pricing = _pricing_for(self._model)
         return round(
             (estimated_input_tokens / 1000) * pricing["input"]
             + (estimated_output_tokens / 1000) * pricing["output"],

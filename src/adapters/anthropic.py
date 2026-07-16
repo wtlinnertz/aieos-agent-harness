@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import time
 
@@ -10,12 +11,40 @@ from src.adapters.base import AgentAdapter
 from src.models import AgentRequest, AgentResponse, HealthStatus
 
 
-# Pricing per 1K tokens (defaults; overridable via config)
+logger = logging.getLogger(__name__)
+
+# Pricing per 1K tokens (defaults; overridable via config).
+#
+# G-12: an unpriced model used to fall through to a hardcoded {0.003, 0.015} --
+# Sonnet's rate -- so every cost the harness reported for a cheaper model was
+# silently inflated. Measured 2026-07-14: it reported $0.0179 for a Haiku call
+# whose real cost was ~$0.006, because 3975*0.003 + 401*0.015 is exactly the
+# Sonnet arithmetic. Unknown models now price at 0.0 and log a warning: a cost
+# of zero is obviously wrong and gets investigated, while a plausible wrong
+# number is believed. Never let an estimate impersonate a measurement.
+#
+# Verify against https://www.anthropic.com/pricing when adding models.
 _DEFAULT_PRICING: dict[str, dict[str, float]] = {
     "claude-sonnet-4-20250514": {"input": 0.003, "output": 0.015},
     "claude-opus-4-20250514": {"input": 0.015, "output": 0.075},
     "claude-haiku-3-20250307": {"input": 0.00025, "output": 0.00125},
+    "claude-haiku-4-5-20251001": {"input": 0.001, "output": 0.005},
 }
+
+_UNKNOWN_PRICING: dict[str, float] = {"input": 0.0, "output": 0.0}
+
+
+def _pricing_for(model: str) -> dict[str, float]:
+    """Pricing for ``model``, or a loud zero if we don't know it (G-12)."""
+    pricing = _DEFAULT_PRICING.get(model)
+    if pricing is None:
+        logger.warning(
+            "No pricing entry for model %r; reporting cost 0.0. Add it to "
+            "_DEFAULT_PRICING rather than trusting this number.",
+            model,
+        )
+        return _UNKNOWN_PRICING
+    return pricing
 
 
 class AnthropicAdapter:
@@ -111,9 +140,7 @@ class AnthropicAdapter:
         tokens_out = response.usage.output_tokens
 
         # Calculate cost
-        pricing = _DEFAULT_PRICING.get(
-            self._model, {"input": 0.003, "output": 0.015}
-        )
+        pricing = _pricing_for(self._model)
         cost_usd = (
             (tokens_in / 1000) * pricing["input"]
             + (tokens_out / 1000) * pricing["output"]
@@ -137,6 +164,8 @@ class AnthropicAdapter:
             cost_usd=round(cost_usd, 6),
             latency_ms=round(latency_ms, 1),
             raw_response={"id": response.id, "stop_reason": response.stop_reason},
+            # G-7: normalize Anthropic's spelling of "I ran out of room".
+            truncated=(response.stop_reason == "max_tokens"),
             human_author=request.metadata.get("human_author"),
             input_content_hash=input_hash,
         )
@@ -164,9 +193,7 @@ class AnthropicAdapter:
             estimated_input_tokens * 2, self._max_tokens
         )
 
-        pricing = _DEFAULT_PRICING.get(
-            self._model, {"input": 0.003, "output": 0.015}
-        )
+        pricing = _pricing_for(self._model)
         return round(
             (estimated_input_tokens / 1000) * pricing["input"]
             + (estimated_output_tokens / 1000) * pricing["output"],

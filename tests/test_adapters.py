@@ -24,6 +24,45 @@ def _make_request(artifact_type: str = "PRD") -> AgentRequest:
     )
 
 
+class TestPricingIsNeverGuessed:
+    """G-12: an unpriced model must not be billed at another model's rate.
+
+    The fallback used to be a hardcoded {0.003, 0.015} -- Sonnet's price -- so
+    every cost reported for a cheaper model was silently ~3x inflated. Measured
+    2026-07-14: $0.0179 reported for a Haiku call costing ~$0.006, because
+    3975*0.003 + 401*0.015 is exactly the Sonnet arithmetic. A plausible wrong
+    number gets believed; an obviously wrong one gets investigated.
+    """
+
+    def test_known_model_is_priced(self):
+        from src.adapters.anthropic import _pricing_for
+
+        assert _pricing_for("claude-sonnet-4-20250514") == {
+            "input": 0.003,
+            "output": 0.015,
+        }
+
+    def test_the_model_the_dogfood_used_is_priced(self):
+        """claude-haiku-4-5 was absent, which is how the 3x inflation happened."""
+        from src.adapters.anthropic import _pricing_for
+
+        assert _pricing_for("claude-haiku-4-5-20251001")["input"] == 0.001
+
+    def test_unknown_model_prices_zero_not_sonnet(self, caplog):
+        from src.adapters.anthropic import _pricing_for
+
+        pricing = _pricing_for("claude-something-not-released-yet")
+        assert pricing == {"input": 0.0, "output": 0.0}
+        # Zero is a deliberate tell, so it must be loud.
+        assert "No pricing entry" in caplog.text
+
+    def test_openai_unknown_model_prices_zero(self, caplog):
+        from src.adapters.openai import _pricing_for
+
+        assert _pricing_for("gpt-not-a-model") == {"input": 0.0, "output": 0.0}
+        assert "No pricing entry" in caplog.text
+
+
 class TestMockAdapterProtocol:
     """MockAdapter satisfies the AgentAdapter protocol."""
 

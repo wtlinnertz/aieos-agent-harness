@@ -133,6 +133,84 @@ class SequentialMockAdapter:
         return 0.001
 
 
+class TruncatingAdapter:
+    """Adapter whose generation hits the provider's output ceiling (G-7)."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    provider_name = "truncating-mock"
+    model_name = "truncating-model"
+
+    def invoke(self, request: AgentRequest) -> AgentResponse:
+        self.calls += 1
+        return AgentResponse(
+            content="# SAD\n\n## 1. Intent\nThe system shall be cut off mid-sen",
+            provider=self.provider_name,
+            model=self.model_name,
+            tokens_in=7924,
+            tokens_out=4096,
+            cost_usd=0.02,
+            latency_ms=38696.0,
+            raw_response={"stop_reason": "max_tokens"},
+            truncated=True,
+        )
+
+    def health(self):
+        from src.models import HealthStatus
+
+        return HealthStatus.OK
+
+    def cost_estimate(self, request: AgentRequest) -> float:
+        return 0.02
+
+
+class TestTruncationFailsFast:
+    """G-7: a truncated artifact can never pass. Stop on the first call.
+
+    Found 2026-07-14: max_tokens was set to 4096, generation stopped at exactly
+    4096 output tokens, and the loop validated-and-regenerated the identical
+    truncated artifact for the whole budget (~6 paid calls) before reporting a
+    generic ESCALATION_NEEDED indistinguishable from a real quality failure.
+    The stop_reason was in raw_response the entire time and nothing read it.
+    """
+
+    def test_raises_on_first_generation_without_validating(self) -> None:
+        from src.convergence import TruncatedGenerationError
+
+        gen = TruncatingAdapter()
+        val = SequentialMockAdapter(responses=[PASS_VALIDATION])
+        loop = ConvergenceLoop(gen, val, max_iterations=3)
+
+        with pytest.raises(TruncatedGenerationError) as exc:
+            loop.run(_make_request("SAD"), _make_request("SAD"))
+
+        # Failed fast: ONE generate call, and the validator was never paid for.
+        assert gen.calls == 1
+        assert val.call_history == []
+        assert exc.value.iteration == 1
+        assert exc.value.tokens_out == 4096
+
+    def test_error_names_the_operator_action(self) -> None:
+        from src.convergence import TruncatedGenerationError
+
+        gen = TruncatingAdapter()
+        loop = ConvergenceLoop(gen, SequentialMockAdapter(), max_iterations=3)
+        with pytest.raises(TruncatedGenerationError) as exc:
+            loop.run(_make_request("SAD"), _make_request("SAD"))
+        # An escalation the operator can act on, not a mystery.
+        assert "max_tokens" in str(exc.value)
+        assert "SAD" in str(exc.value)
+
+    def test_untruncated_response_is_unaffected(self) -> None:
+        """The guard must not over-fire: truncated=None/False proceeds."""
+        gen = SequentialMockAdapter(responses=["# SAD"])
+        val = SequentialMockAdapter(responses=[PASS_VALIDATION])
+        loop = ConvergenceLoop(gen, val, max_iterations=3)
+        _resp, result, _state = loop.run(_make_request("SAD"), _make_request("SAD"))
+        assert result.status == "PASS"
+
+
 # ---------------------------------------------------------------------------
 # parse_validation_result tests
 # ---------------------------------------------------------------------------

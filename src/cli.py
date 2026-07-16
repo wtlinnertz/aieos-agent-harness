@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 from src.config import HarnessConfig, load_config
 from src.models import (
@@ -529,7 +530,14 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
     print(
         json.dumps(
             {
-                "status": "frozen",
+                # G-14: report what apply_freeze_decision actually decided, in
+                # the canonical FR-018 vocabulary. This used to be the hardcoded
+                # literal "frozen" -- lowercase, not the enum, and not derived
+                # from the result at all. The console then parsed this field and
+                # threw it away, hardcoding its own 'frozen'. Both sides agreed
+                # only because both invented the same string; any outcome other
+                # than FROZEN would have been reported as FROZEN anyway.
+                "status": result.status.value,
                 "artifact_id": result.artifact_id,
                 "path": result.path,
                 "frozen_count": result.frozen_count,
@@ -540,14 +548,42 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0
 
 
+def _select_role_adapters(config: HarnessConfig, adapters: dict) -> tuple:
+    """Pick the generate and validate adapters (G-8).
+
+    ``roles.generate`` / ``roles.validate`` name providers; either unset falls
+    back to the first enabled one, which is the pre-existing behaviour. Setting
+    them to different providers is how you stop a model grading its own work.
+
+    Raises ValueError naming the offender if a role points at a provider that
+    isn't enabled -- silently falling back to "whatever is first" would defeat
+    the entire purpose of asking for a separate validator.
+    """
+    def _pick(role_name: str, provider: Optional[str]):
+        if provider is None:
+            return next(iter(adapters.values()))
+        if provider not in adapters:
+            raise ValueError(
+                f"roles.{role_name} names provider {provider!r}, which is not "
+                f"enabled. Enabled: {sorted(adapters)}"
+            )
+        return adapters[provider]
+
+    return (
+        _pick("generate", config.roles.generate),
+        _pick("validate", config.roles.validate),
+    )
+
+
 def cmd_run_artifact(args: argparse.Namespace, config: HarnessConfig) -> int:
     """Run one artifact's lifecycle and emit a machine-readable result.
 
     The dark-factory conductor's subprocess seam (mirrors ADR-0003's
     console->harness CLI pattern). Because both repos use ``src`` as their import
     root, an in-process import would collide; the CLI subprocess is the clean
-    cross-repo boundary. Emits ``{"result": "CONVERGED"|"ESCALATION_NEEDED"}`` on
-    stdout, exit 0; a structured JSON error + non-zero otherwise.
+    cross-repo boundary. Emits
+    ``{"result": "CONVERGED"|"ESCALATION_NEEDED"|"ALREADY_FROZEN"}`` on stdout,
+    exit 0; a structured JSON error + non-zero otherwise.
     """
     from src.driver import HarnessDriver
 
@@ -558,11 +594,15 @@ def cmd_run_artifact(args: argparse.Namespace, config: HarnessConfig) -> int:
             file=sys.stderr,
         )
         return 1
-    adapter = next(iter(adapters.values()))
+    try:
+        gen_adapter, val_adapter = _select_role_adapters(config, adapters)
+    except ValueError as exc:
+        print(json.dumps({"error": "bad_roles", "message": str(exc)}), file=sys.stderr)
+        return 1
     driver = HarnessDriver(
         Path(args.initiative).resolve(),
-        adapter,
-        adapter,
+        gen_adapter,
+        val_adapter,
         aieos_root=Path(args.aieos_root).resolve(),
     )
     try:
