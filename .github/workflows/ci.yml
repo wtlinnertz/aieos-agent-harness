@@ -11,8 +11,18 @@ permissions:
 
 jobs:
   test:
-    name: Test suite
-    runs-on: ubuntu-latest
+    # Windows is not decoration. Running Linux-only hid two production defects
+    # until the harness was first executed on Windows by hand (2026-07-15):
+    #   G-6  -- text I/O without encoding= dies on cp1252 against UTF-8 kit files
+    #   G-15 -- os.kill(pid, 0) is CTRL_C_EVENT on Windows, so the FR-019 lock's
+    #           liveness probe fired a real Ctrl-C at the console process group
+    # Both were invisible to a green Linux matrix. Do not drop the windows leg.
+    name: Test suite (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       # actions/checkout v6.0.2
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

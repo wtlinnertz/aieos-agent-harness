@@ -1,6 +1,7 @@
 """Tests for the cross-driver initiative lock (FR-019, Python side)."""
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -214,8 +215,12 @@ class TestPidAliveHelper:
 
 
 class TestPidAliveBranches:
+    """POSIX branch. Pinned to os.name == 'posix' so these still exercise the
+    signal-0 path when the suite runs on Windows (G-15 platform-branched it)."""
+
     def test_process_lookup_is_dead(self, monkeypatch):
         import src.lock as lock
+        monkeypatch.setattr(lock.os, "name", "posix")
         def boom(pid, sig):
             raise ProcessLookupError
         monkeypatch.setattr(lock.os, "kill", boom)
@@ -223,6 +228,7 @@ class TestPidAliveBranches:
 
     def test_permission_error_is_alive(self, monkeypatch):
         import src.lock as lock
+        monkeypatch.setattr(lock.os, "name", "posix")
         def boom(pid, sig):
             raise PermissionError
         monkeypatch.setattr(lock.os, "kill", boom)
@@ -230,10 +236,76 @@ class TestPidAliveBranches:
 
     def test_generic_oserror_is_dead(self, monkeypatch):
         import src.lock as lock
+        monkeypatch.setattr(lock.os, "name", "posix")
         def boom(pid, sig):
             raise OSError
         monkeypatch.setattr(lock.os, "kill", boom)
         assert lock._pid_alive(123) is False
+
+
+class TestPidAliveNeverSignalsOnWindows:
+    """G-13's sibling, G-15 -- the regression guard that matters.
+
+    ``os.kill(pid, 0)`` is the POSIX "does this process exist?" no-op probe. On
+    Windows ``signal.CTRL_C_EVENT == 0``, so the same call fires a real Ctrl-C at
+    the console process group instead of probing. As a lock liveness check that
+    means a stale-lock probe kills the harness, the console's harness subprocess,
+    or the user's shell.
+
+    Symptom that exposed it: ``pytest`` died with KeyboardInterrupt at ~78% with
+    nobody touching the keyboard, at a different traceback location each run.
+
+    These run on every platform: they assert the *dispatch*, not the probe, so a
+    Linux CI box still fails if someone deletes the platform branch.
+    """
+
+    def test_windows_dispatch_never_calls_os_kill(self, monkeypatch):
+        import src.lock as lock
+        monkeypatch.setattr(lock.os, "name", "nt")
+        monkeypatch.setattr(lock, "_pid_alive_windows", lambda pid: True)
+
+        def forbidden(pid, sig):
+            raise AssertionError(
+                "os.kill(pid, 0) on Windows sends CTRL_C_EVENT to the console "
+                "process group -- it is not a liveness probe (G-15)"
+            )
+
+        monkeypatch.setattr(lock.os, "kill", forbidden)
+        assert lock._pid_alive(123) is True
+
+    def test_windows_dispatch_reaches_the_handle_probe(self, monkeypatch):
+        import src.lock as lock
+        seen = []
+        monkeypatch.setattr(lock.os, "name", "nt")
+        monkeypatch.setattr(
+            lock, "_pid_alive_windows", lambda pid: seen.append(pid) or False
+        )
+        assert lock._pid_alive(4321) is False
+        assert seen == [4321]
+
+    def test_nonpositive_pid_short_circuits_before_any_probe(self, monkeypatch):
+        """pid <= 0 must never reach a probe: GenerateConsoleCtrlEvent(pid=0)
+        targets EVERY process sharing the console."""
+        import src.lock as lock
+        monkeypatch.setattr(lock.os, "name", "nt")
+
+        def forbidden(pid):  # pragma: no cover - must never run
+            raise AssertionError("probed a non-positive pid")
+
+        monkeypatch.setattr(lock, "_pid_alive_windows", forbidden)
+        assert lock._pid_alive(0) is False
+        assert lock._pid_alive(-1) is False
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows-only handle probe")
+class TestPidAliveWindowsProbe:
+    def test_current_process_alive(self):
+        from src.lock import _pid_alive_windows
+        assert _pid_alive_windows(os.getpid()) is True
+
+    def test_unlikely_pid_dead(self):
+        from src.lock import _pid_alive_windows
+        assert _pid_alive_windows(2_000_000_000) is False
 
 
 class TestDefaultsBranches:
