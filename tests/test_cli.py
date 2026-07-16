@@ -176,6 +176,7 @@ import json  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 from src.freeze import hash_artifact_content  # noqa: E402
+from src.models import ArtifactStatus  # noqa: E402
 
 
 class TestParseFreeze:
@@ -224,7 +225,10 @@ class TestFreezeCommandFunctional:
         rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
         assert rc == 0
         out = json.loads(capsys.readouterr().out)
-        assert out["status"] == "frozen"
+        # G-14: the canonical FR-018 vocabulary, derived from the FreezeResult --
+        # not the hardcoded lowercase literal this used to emit.
+        assert out["status"] == "FROZEN"
+        assert out["status"] == ArtifactStatus.FROZEN.value
         assert out["artifact_id"] == "SAD-TEST-001"
 
     def test_freeze_hash_mismatch_exit_one(self, tmp_path, capsys):

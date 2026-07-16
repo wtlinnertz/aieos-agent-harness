@@ -3,6 +3,7 @@
 import os
 from pathlib import Path
 from dataclasses import dataclass, field
+from typing import Optional
 
 import yaml
 
@@ -24,10 +25,30 @@ class RoutingConfig:
 
 
 @dataclass
+class RolesConfig:
+    """Which provider drives generation, and which drives validation (G-8).
+
+    ``check_generation_validation_separation`` is one of the seven invariants,
+    and ``HarnessDriver`` has always taken two adapters -- but the CLI passed
+    the SAME adapter twice, so a model graded its own homework. That is the
+    weakest possible reading of "separation", and the 2026-07-14 dogfood showed
+    the judge is not trustworthy enough for it: the same model+prompt returned
+    opposite verdicts on one hard gate across back-to-back runs.
+
+    Both default to None = "first enabled provider", preserving the previous
+    behaviour for existing configs. Naming a different validator is the point.
+    """
+
+    generate: Optional[str] = None
+    validate: Optional[str] = None
+
+
+@dataclass
 class HarnessConfig:
     aieos_root: str = "../"
     initiative_root: str = ""
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
+    roles: RolesConfig = field(default_factory=RolesConfig)
     routing: RoutingConfig = field(default_factory=RoutingConfig)
     max_convergence_iterations: int = 3
     observability_log: str = "harness-metrics.jsonl"
@@ -71,11 +92,22 @@ def load_config(path: Path) -> HarnessConfig:
     else:
         routing = RoutingConfig()
 
+    # -- Build roles config (G-8: which provider generates vs validates) --
+    roles_data = raw.get("roles", {})
+    if isinstance(roles_data, dict):
+        roles = RolesConfig(
+            generate=roles_data.get("generate"),
+            validate=roles_data.get("validate"),
+        )
+    else:
+        roles = RolesConfig()
+
     # -- Build top-level config --
     config = HarnessConfig(
         aieos_root=raw.get("aieos_root", "../"),
         initiative_root=raw.get("initiative_root", ""),
         providers=providers,
+        roles=roles,
         routing=routing,
         max_convergence_iterations=raw.get("max_convergence_iterations", 3),
         observability_log=raw.get("observability_log", "harness-metrics.jsonl"),

@@ -81,6 +81,18 @@ class AgentResponse:
     cost_usd: float
     latency_ms: float
     raw_response: Optional[dict] = None
+    # G-7: did the provider stop because it hit the output ceiling?
+    # Normalized here on purpose: every provider spells it differently
+    # (Anthropic stop_reason == "max_tokens", OpenAI finish_reason == "length"),
+    # and the convergence loop must not reach into provider-shaped raw_response
+    # to find out. None = the provider didn't say.
+    #
+    # A truncated artifact is structurally incomplete, so it can NEVER pass
+    # validation -- retrying it identically just burns the whole convergence
+    # budget and reports a generic escalation indistinguishable from a real
+    # quality failure. That is exactly what happened on 2026-07-14: the signal
+    # was sitting in raw_response and nothing read it.
+    truncated: Optional[bool] = None
     # Five-element provenance (AI SDLC Governance — Human Oversight gate 5)
     human_author: Optional[str] = None
     input_content_hash: Optional[str] = None
