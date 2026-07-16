@@ -407,7 +407,7 @@ class HealthReviewPipeline:
         if not metrics_path.exists():
             return '{"error": "metrics file not found"}'
 
-        lines = metrics_path.read_text().strip().split("\n")
+        lines = metrics_path.read_text(encoding="utf-8").strip().split("\n")
         # Take last 100 entries for recency
         recent = lines[-100:] if len(lines) > 100 else lines
 

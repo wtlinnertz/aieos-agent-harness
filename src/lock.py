@@ -13,8 +13,10 @@ Canonical record: ``.aieos/lock`` (JSON), defined once in
 console (TypeScript). Key properties:
 
 - **Hostname-aware liveness.** A PID is only meaningful on the host that wrote
-  it, so ``process.kill(pid, 0)`` is consulted only when ``hostname`` matches
-  this host. Across hosts, staleness is decided purely by the lease.
+  it, so :func:`_pid_alive` is consulted only when ``hostname`` matches this
+  host. Across hosts, staleness is decided purely by the lease. The probe is
+  platform-branched: the POSIX ``os.kill(pid, 0)`` idiom is NOT a liveness check
+  on Windows -- signal 0 is ``CTRL_C_EVENT`` there (G-15).
 - **Lease + heartbeat.** ``renewed_at`` is refreshed on a heartbeat
   (``heartbeat_interval_seconds``, default 60s); a lock older than
   ``lease_ttl_seconds`` (default 300s) is expired and may be taken over, so a
@@ -110,10 +112,49 @@ def _halt_path(initiative_path: Path) -> Path:
     return Path(initiative_path) / ".aieos" / "halt"
 
 
+def _pid_alive_windows(pid: int) -> bool:
+    """Windows liveness probe (G-15).
+
+    ``os.kill(pid, 0)`` MUST NOT be used here. On Windows ``signal.CTRL_C_EVENT``
+    is 0, and ``os.kill`` maps signal 0 to
+    ``GenerateConsoleCtrlEvent(CTRL_C_EVENT, pid)`` -- it does not probe the
+    process, it fires a real Ctrl-C at the console process group. Used as a
+    liveness check that means a stale-lock probe would kill the harness, the
+    console's harness subprocess, or the user's shell: a lock that terminates
+    whoever asks about the lock. Query the process handle instead.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    ERROR_ACCESS_DENIED = 5
+    STILL_ACTIVE = 259
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        # Exists but we lack rights to query it -- still alive. Mirrors the
+        # POSIX PermissionError branch below.
+        return ctypes.get_last_error() == ERROR_ACCESS_DENIED
+    try:
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return False
+        return code.value == STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_alive(pid: int) -> bool:
-    """True if a process with ``pid`` exists on THIS host (advisory)."""
+    """True if a process with ``pid`` exists on THIS host (advisory).
+
+    Platform-branched deliberately: the POSIX signal-0 idiom is actively
+    dangerous on Windows (see :func:`_pid_alive_windows`).
+    """
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _pid_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -131,7 +172,7 @@ def read_lock(initiative_path: Path) -> Optional[LockInfo]:
     lock_file = _lock_path(initiative_path)
     if not lock_file.exists():
         return None
-    data = json.loads(lock_file.read_text())
+    data = json.loads(lock_file.read_text(encoding="utf-8"))
     known = {f for f in LockInfo.__dataclass_fields__}  # type: ignore[attr-defined]
     return LockInfo(**{k: v for k, v in data.items() if k in known})
 
@@ -162,7 +203,7 @@ def is_takeable(
 
 def _write_lock(lock_file: Path, info: LockInfo) -> None:
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_file.write_text(json.dumps(asdict(info), indent=2))
+    lock_file.write_text(json.dumps(asdict(info), indent=2), encoding="utf-8")
 
 
 def _write_halt_sentinel(
@@ -192,7 +233,7 @@ def _write_halt_sentinel(
     }
     halt = _halt_path(initiative_path)
     halt.parent.mkdir(parents=True, exist_ok=True)
-    halt.write_text(json.dumps(payload, indent=2))
+    halt.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def acquire_lock(

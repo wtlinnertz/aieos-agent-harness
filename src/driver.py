@@ -124,7 +124,7 @@ class HarnessDriver:
                 kit_dir / "docs" / "validators" / f"{artifact_type.lower()}-validator.md"
             )
             if vp.exists():
-                validator_prompt = vp.read_text()
+                validator_prompt = vp.read_text(encoding="utf-8")
                 break
 
         gen_request = AgentRequest(
@@ -207,7 +207,7 @@ class HarnessDriver:
             f"{content}\n"
         )
         path = sdlc / f"{artifact_type.lower()}.md"
-        path.write_text(doc)
+        path.write_text(doc, encoding="utf-8")
         return path
 
     def run_artifact_lifecycle(

@@ -204,7 +204,7 @@ class ExecutionLedger:
             )
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text("\n".join(lines) + "\n")
+        self._path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     def load(self) -> None:
         """Load ledger from disk Markdown.
@@ -212,7 +212,7 @@ class ExecutionLedger:
         Parses the two tables (Item Phase Status and Group Gates) using
         regex-based row extraction. Tolerant of extra whitespace.
         """
-        content = self._path.read_text()
+        content = self._path.read_text(encoding="utf-8")
 
         self._phases = {}
         self._gates = {}

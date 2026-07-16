@@ -18,7 +18,7 @@ def read_er_state_block(er_path: Path) -> ERStateBlock:
 
     Expects rows like ``| Current Layer | Layer 4 (EEK) |``.
     """
-    text = er_path.read_text()
+    text = er_path.read_text(encoding="utf-8")
 
     def _extract(field_name: str) -> str:
         pattern = rf"\|\s*{re.escape(field_name)}\s*\|\s*(.*?)\s*\|"
@@ -38,7 +38,7 @@ def read_er_state_block(er_path: Path) -> ERStateBlock:
 
 def write_er_state_block(er_path: Path, state: ERStateBlock) -> None:
     """Find and replace the state block table in the ER markdown in-place."""
-    text = er_path.read_text()
+    text = er_path.read_text(encoding="utf-8")
 
     field_map = {
         "Current Layer": state.current_layer,
@@ -55,7 +55,7 @@ def write_er_state_block(er_path: Path, state: ERStateBlock) -> None:
         replacement = rf"\1 {value} |"
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-    er_path.write_text(text)
+    er_path.write_text(text, encoding="utf-8")
 
 
 def read_frozen_artifacts(initiative_path: Path) -> dict[str, ArtifactStatus]:
@@ -71,7 +71,7 @@ def read_frozen_artifacts(initiative_path: Path) -> dict[str, ArtifactStatus]:
         return results
 
     for md_file in sorted(sdlc_dir.glob("*.md")):
-        text = md_file.read_text()
+        text = md_file.read_text(encoding="utf-8")
 
         # Extract artifact ID
         id_match = re.search(
@@ -126,7 +126,7 @@ def write_artifact_status(
 
     target: Optional[Path] = None
     for md_file in sorted(sdlc_dir.glob("*.md")):
-        text = md_file.read_text()
+        text = md_file.read_text(encoding="utf-8")
         id_match = re.search(
             r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE
         )
@@ -139,7 +139,7 @@ def write_artifact_status(
             f"No artifact with ID {artifact_id!r} found under {sdlc_dir}"
         )
 
-    text = target.read_text()
+    text = target.read_text(encoding="utf-8")
     status_pattern = r"(\|\s*Status\s*\|)\s*.*?\s*\|"
     if not re.search(status_pattern, text, re.IGNORECASE):
         raise ValueError(
@@ -152,7 +152,7 @@ def write_artifact_status(
         count=1,
         flags=re.IGNORECASE,
     )
-    target.write_text(new_text)
+    target.write_text(new_text, encoding="utf-8")
     return target
 
 
@@ -179,7 +179,7 @@ def append_journal_entry(
         lines.append(f"| {key} | {value} |")
     lines.append("")
 
-    with open(journal_path, "a") as f:
+    with open(journal_path, "a", encoding="utf-8") as f:
         f.write("\n".join(lines))
 
 
@@ -189,7 +189,7 @@ def read_journal_entries(journal_path: Path) -> list[dict]:
     Returns a list of dicts, each with ``entry_type``, ``timestamp``,
     and all field/value pairs from the table.
     """
-    text = journal_path.read_text()
+    text = journal_path.read_text(encoding="utf-8")
     entries: list[dict] = []
 
     # Split on ### headers
@@ -241,7 +241,7 @@ def find_artifact_path(initiative_path: Path, artifact_id: str) -> Path:
         raise ValueError(f"No docs/sdlc directory under {initiative_path}")
 
     for md_file in sorted(sdlc_dir.glob("*.md")):
-        text = md_file.read_text()
+        text = md_file.read_text(encoding="utf-8")
         id_match = re.search(
             r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE
         )

@@ -54,7 +54,7 @@ class ObservabilityLayer:
     def record(self, invocation: InvocationRecord) -> None:
         """Append invocation record as a JSON line to the log file."""
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._log_path, "a") as f:
+        with open(self._log_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(_record_to_dict(invocation)) + "\n")
 
     def read_records(
@@ -68,7 +68,7 @@ class ObservabilityLayer:
             return []
 
         records: list[InvocationRecord] = []
-        with open(self._log_path, "r") as f:
+        with open(self._log_path, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
