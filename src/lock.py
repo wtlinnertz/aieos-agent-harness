@@ -172,7 +172,7 @@ def read_lock(initiative_path: Path) -> Optional[LockInfo]:
     lock_file = _lock_path(initiative_path)
     if not lock_file.exists():
         return None
-    data = json.loads(lock_file.read_text())
+    data = json.loads(lock_file.read_text(encoding="utf-8"))
     known = {f for f in LockInfo.__dataclass_fields__}  # type: ignore[attr-defined]
     return LockInfo(**{k: v for k, v in data.items() if k in known})
 
@@ -203,7 +203,7 @@ def is_takeable(
 
 def _write_lock(lock_file: Path, info: LockInfo) -> None:
     lock_file.parent.mkdir(parents=True, exist_ok=True)
-    lock_file.write_text(json.dumps(asdict(info), indent=2))
+    lock_file.write_text(json.dumps(asdict(info), indent=2), encoding="utf-8")
 
 
 def _write_halt_sentinel(
@@ -233,7 +233,7 @@ def _write_halt_sentinel(
     }
     halt = _halt_path(initiative_path)
     halt.parent.mkdir(parents=True, exist_ok=True)
-    halt.write_text(json.dumps(payload, indent=2))
+    halt.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def acquire_lock(

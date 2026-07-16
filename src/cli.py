@@ -80,11 +80,11 @@ def _resolve_kit_files(
         prompt_path = kit_dir / "docs" / "prompts" / f"{type_lower}-prompt.md"
 
         if spec_path.exists():
-            spec_content = spec_path.read_text()
+            spec_content = spec_path.read_text(encoding="utf-8")
         if template_path.exists():
-            template_content = template_path.read_text()
+            template_content = template_path.read_text(encoding="utf-8")
         if prompt_path.exists():
-            prompt_content = prompt_path.read_text()
+            prompt_content = prompt_path.read_text(encoding="utf-8")
 
         if spec_content:
             break
@@ -102,7 +102,7 @@ def _collect_upstream_artifacts(initiative_path: Path) -> dict[str, str]:
         return artifacts
 
     for md_file in sorted(sdlc_dir.glob("*.md")):
-        text = md_file.read_text()
+        text = md_file.read_text(encoding="utf-8")
         id_match = re.search(
             r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE
         )
@@ -186,7 +186,7 @@ def cmd_validate(args: argparse.Namespace, config: HarnessConfig) -> int:
         print(f"ERROR: Artifact not found: {artifact_path}", file=sys.stderr)
         return 1
 
-    artifact_content = artifact_path.read_text()
+    artifact_content = artifact_path.read_text(encoding="utf-8")
 
     # Infer artifact type from filename (e.g., "03-sad.md" -> "SAD")
     stem = artifact_path.stem
@@ -208,7 +208,7 @@ def cmd_validate(args: argparse.Namespace, config: HarnessConfig) -> int:
             / f"{artifact_type.lower()}-validator.md"
         )
         if vp.exists():
-            validator_prompt = vp.read_text()
+            validator_prompt = vp.read_text(encoding="utf-8")
             break
 
     request = AgentRequest(
@@ -297,7 +297,7 @@ def cmd_lifecycle(args: argparse.Namespace, config: HarnessConfig) -> int:
             / f"{args.type.lower()}-validator.md"
         )
         if vp.exists():
-            validator_prompt = vp.read_text()
+            validator_prompt = vp.read_text(encoding="utf-8")
             break
 
     val_request = AgentRequest(
@@ -412,12 +412,12 @@ def cmd_research(args: argparse.Namespace, config: HarnessConfig) -> int:
         print(f"ERROR: Base prompt not found: {base_prompt_path}", file=sys.stderr)
         return 1
 
-    prompt_content = base_prompt_path.read_text()
+    prompt_content = base_prompt_path.read_text(encoding="utf-8")
     spec_content = ""
     if args.base_spec:
         spec_path = Path(args.base_spec).resolve()
         if spec_path.exists():
-            spec_content = spec_path.read_text()
+            spec_content = spec_path.read_text(encoding="utf-8")
 
     request = AgentRequest(
         artifact_type="research",
@@ -480,7 +480,7 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
         return 2
 
     try:
-        raw = json.loads(decision_path.read_text())
+        raw = json.loads(decision_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         print(
             json.dumps({"error": "bad_request", "message": f"Invalid decision JSON: {exc}"}),

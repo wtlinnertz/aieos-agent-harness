@@ -308,7 +308,7 @@ class WDDOrchestrator:
             self._initiative / "docs" / "sdlc" / f"{item.id}-{phase}.md"
         )
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(response.content)
+        Path(output_path).write_text(response.content, encoding="utf-8")
 
         return {
             "output_path": output_path,
@@ -347,7 +347,7 @@ class WDDOrchestrator:
             if phase in statuses and statuses[phase].output_path:
                 path = Path(statuses[phase].output_path)
                 if path.exists():
-                    outputs[phase] = path.read_text()
+                    outputs[phase] = path.read_text(encoding="utf-8")
         return outputs
 
     @staticmethod

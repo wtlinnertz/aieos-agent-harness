@@ -110,7 +110,7 @@ def apply_freeze_decision(
     except ValueError as exc:
         raise FreezeError("not_found", str(exc)) from exc
 
-    disk_hash = hash_artifact_content(target.read_text())
+    disk_hash = hash_artifact_content(target.read_text(encoding="utf-8"))
     if disk_hash != decision.content_hash:
         raise FreezeError(
             "hash_mismatch",

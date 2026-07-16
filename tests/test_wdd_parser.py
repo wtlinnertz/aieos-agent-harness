@@ -200,9 +200,17 @@ SAMPLE_EXEC_PLAN = """\
 
 @pytest.fixture
 def wdd_file(tmp_path):
-    """Write sample WDD to a temp file and return its path."""
+    """Write sample WDD to a temp file and return its path.
+
+    encoding="utf-8" is load-bearing (G-6). The sample contains "§" (U+00A7);
+    without an explicit encoding this writes at the locale default, which on
+    Windows is cp1252, so "§" lands as the single byte 0xa7. wdd_parser reads
+    with an explicit encoding="utf-8", 0xa7 is not valid UTF-8, and every test
+    in this module dies with UnicodeDecodeError. Artifacts are UTF-8 -- say so
+    on both sides of every file operation.
+    """
     p = tmp_path / "08-wdd.md"
-    p.write_text(SAMPLE_WDD)
+    p.write_text(SAMPLE_WDD, encoding="utf-8")
     return str(p)
 
 
@@ -210,7 +218,7 @@ def wdd_file(tmp_path):
 def exec_plan_file(tmp_path):
     """Write sample execution plan to a temp file and return its path."""
     p = tmp_path / "13-execution-plan.md"
-    p.write_text(SAMPLE_EXEC_PLAN)
+    p.write_text(SAMPLE_EXEC_PLAN, encoding="utf-8")
     return str(p)
 
 

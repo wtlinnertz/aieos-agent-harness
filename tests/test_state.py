@@ -226,6 +226,72 @@ class TestWriteArtifactStatus:
             write_artifact_status(tmp_path, "SAD-X-001", ArtifactStatus.FROZEN)
 
 
+class TestNonAsciiArtifactsRoundTrip:
+    """G-6: text I/O must declare encoding="utf-8" on BOTH sides.
+
+    Real kit files are UTF-8 and contain smart quotes and em dashes -- the
+    dogfood on 2026-07-14 died reading aieos-engineering-execution's
+    prd-template.md on the "Success" curly quote (U+201D) because read_text()
+    fell back to the Windows locale encoding (cp1252).
+
+    These assert the round trip explicitly rather than trusting the ambient
+    locale, so they fail on a Windows runner if anyone drops an encoding= again.
+    A codebase that is wrong everywhere still round-trips; being right in only
+    one place is what breaks -- which is exactly how this surfaced.
+    """
+
+    SMART = 'Curly "quotes", an em dash —, a section §, and café.'
+
+    def _artifact(self, tmp_path, body):
+        d = tmp_path / "docs" / "sdlc"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "05-sad.md").write_text(
+            "## Document Control\n\n"
+            "| Artifact ID | SAD-X-001 |\n"
+            "| Status | DRAFT |\n\n"
+            f"{body}\n",
+            encoding="utf-8",
+        )
+        return tmp_path
+
+    def test_read_frozen_artifacts_reads_utf8_bodies(self, tmp_path):
+        root = self._artifact(tmp_path, self.SMART)
+        assert read_frozen_artifacts(root)["SAD-X-001"] == ArtifactStatus.DRAFT
+
+    def test_write_artifact_status_preserves_non_ascii(self, tmp_path):
+        root = self._artifact(tmp_path, self.SMART)
+        write_artifact_status(root, "SAD-X-001", ArtifactStatus.FROZEN)
+        text = (root / "docs" / "sdlc" / "05-sad.md").read_text(encoding="utf-8")
+        assert self.SMART in text
+        assert read_frozen_artifacts(root)["SAD-X-001"] == ArtifactStatus.FROZEN
+
+    def test_er_state_block_round_trips_non_ascii(self, tmp_path):
+        er = tmp_path / "er.md"
+        er.write_text(
+            "## 1b. Current State\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Current Layer | Layer 4 — EEK |\n"
+            "| Current Artifact | SAD-X-001 |\n"
+            "| Current Step | Generation |\n"
+            "| Frozen Count | 1 |\n"
+            "| Next Action | Generate “SAD” |\n"
+            "| Blocking On | None |\n"
+            "| Last Updated | 2026-07-16T00:00:00Z |\n",
+            encoding="utf-8",
+        )
+        block = read_er_state_block(er)
+        assert "—" in block.current_layer
+        write_er_state_block(er, block)
+        assert "—" in read_er_state_block(er).current_layer
+
+    def test_journal_round_trips_non_ascii(self, tmp_path):
+        journal = tmp_path / "journal.md"
+        journal.write_text("# Sherpa Journal\n", encoding="utf-8")
+        append_journal_entry(journal, "Freeze", {"Note": self.SMART})
+        assert read_journal_entries(journal)[0]["Note"] == self.SMART
+
+
 class TestFindArtifactPath:
     def test_no_sdlc_dir_raises(self, tmp_path):
         from src.state import find_artifact_path
