@@ -301,6 +301,66 @@ class TestRunArtifactCommand:
         assert _dfjson.loads(capsys.readouterr().err)["error"] == "no_providers"
 
 
+class TestRunArtifactHonoursConfiguredBudget:
+    """G-17: max_convergence_iterations must actually reach the driver.
+
+    It was parsed into HarnessConfig and never passed to HarnessDriver, so the
+    driver's default of 3 always won and the yaml knob did nothing on the one
+    path the dark factory uses. Setting it to 2 to cap spend during the
+    2026-07-14 dogfood was silently ignored.
+
+    Asserts the value the driver is CONSTRUCTED with -- the bug was in the
+    hand-off, not in the loop, and the loop already had tests.
+    """
+
+    def _config(self, tmp_path, body: str) -> str:
+        cfg = tmp_path / "harness.yaml"
+        cfg.write_text(body, encoding="utf-8")
+        return str(cfg)
+
+    def _spy_driver(self, monkeypatch, captured):
+        import src.driver as driver_mod
+        from src.models import LifecycleResult
+
+        class SpyDriver(driver_mod.HarnessDriver):
+            def __init__(self, *a, **kw):
+                captured.update(kw)
+                super().__init__(*a, **kw)
+
+            def run_artifact(self, artifact_type):  # don't need a real run
+                return LifecycleResult.CONVERGED
+
+        # cli.py imports HarnessDriver lazily inside the command, so patching
+        # the module attribute is what the call site will resolve.
+        monkeypatch.setattr(driver_mod, "HarnessDriver", SpyDriver)
+
+    def test_configured_budget_reaches_the_driver(self, tmp_path, monkeypatch):
+        captured: dict = {}
+        self._spy_driver(monkeypatch, captured)
+        cfg = self._config(
+            tmp_path,
+            "providers:\n  mock:\n    enabled: true\n"
+            "max_convergence_iterations: 2\n",
+        )
+        rc = main([
+            "--config", cfg, "run-artifact", "--type", "PRD",
+            "--initiative", str(tmp_path), "--aieos-root", str(tmp_path),
+        ])
+        assert rc == 0
+        assert captured["max_iterations"] == 2
+
+    def test_default_budget_is_used_when_unset(self, tmp_path, monkeypatch):
+        captured: dict = {}
+        self._spy_driver(monkeypatch, captured)
+        cfg = self._config(tmp_path, "providers:\n  mock:\n    enabled: true\n")
+        rc = main([
+            "--config", cfg, "run-artifact", "--type", "PRD",
+            "--initiative", str(tmp_path), "--aieos-root", str(tmp_path),
+        ])
+        assert rc == 0
+        assert captured["max_iterations"] == 3  # HarnessConfig default
+
+
 class TestMarkStatusCommand:
     def _artifact(self, tmp_path, status="FREEZE_PENDING"):
         d = tmp_path / "docs" / "sdlc"
