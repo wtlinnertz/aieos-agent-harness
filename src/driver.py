@@ -22,6 +22,7 @@ from typing import Optional
 from src.adapters.base import AgentAdapter
 from src.convergence import ConvergenceLoop
 from src.freeze import apply_freeze_decision
+from src.invariants import UPSTREAM_DEPENDENCIES, check_freeze_before_promote
 from src.models import (
     AgentRequest,
     ArtifactStatus,
@@ -32,6 +33,33 @@ from src.models import (
     LifecycleResult,
 )
 from src.state import read_er_state_block, read_frozen_artifacts
+
+
+class UpstreamNotFrozenError(RuntimeError):
+    """Refused to generate against upstream artifacts that aren't FROZEN.
+
+    Freeze-before-promote is the invariant the whole framework is named around:
+    a downstream artifact must be derived from *approved* inputs, or the
+    approval means nothing. Generating a SAD from a PRD no human has frozen
+    produces architecture for requirements nobody agreed to -- and it looks
+    exactly like a legitimate artifact afterwards.
+
+    ``check_freeze_before_promote`` has existed in ``invariants.py`` since the
+    beginning, with tests proving it works. It had **zero production callers**
+    until 2026-07-16: the check was real, the enforcement was imaginary. This
+    is the caller.
+
+    Raised before any provider call, so an out-of-order run costs nothing and
+    names the artifact that needs freezing first.
+    """
+
+    def __init__(self, artifact_type: str, reason: str) -> None:
+        self.artifact_type = artifact_type
+        self.reason = reason
+        super().__init__(
+            f"refusing to generate {artifact_type}: {reason}. Freeze the "
+            "upstream artifact(s) first -- freeze-before-promote (ADR-0002)."
+        )
 
 
 class FrozenArtifactError(RuntimeError):
@@ -106,6 +134,18 @@ class HarnessDriver:
         # must be able to pass over them without touching them.
         if self._is_frozen(artifact_type):
             return LifecycleResult.ALREADY_FROZEN
+
+        # Freeze-before-promote: refuse to derive this artifact from inputs no
+        # human has approved. Checked BEFORE the provider call for the same
+        # reason as the frozen guard above -- an out-of-order run should cost
+        # nothing. The conductor walks the DAG in freeze order so it should
+        # never trip this; if it does, the walk order or the manifest is wrong,
+        # which is governance-relevant and deserves to stop the run loudly.
+        upstream_check = check_freeze_before_promote(
+            self._initiative, artifact_type, UPSTREAM_DEPENDENCIES
+        )
+        if not upstream_check.passed:
+            raise UpstreamNotFrozenError(artifact_type, upstream_check.reason)
 
         from src.cli import _collect_upstream_artifacts, _resolve_kit_files
 
