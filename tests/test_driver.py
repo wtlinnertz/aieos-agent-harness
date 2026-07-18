@@ -219,6 +219,92 @@ class TestRunArtifact:
             driver.run_artifact("PRD")
 
 
+class TestFreezeBeforePromoteIsEnforced:
+    """The invariant is now actually CALLED, not merely defined.
+
+    check_freeze_before_promote has lived in invariants.py from the start, with
+    passing tests. It had zero production callers until 2026-07-16 -- the check
+    was real, the enforcement imaginary. A green suite proved a function worked
+    while nothing ran it.
+
+    These tests exercise it THROUGH run_artifact, which is the part that was
+    missing. Testing the invariant directly is what created the illusion.
+    """
+
+    def _frozen_prd(self, initiative):
+        sdlc = initiative / "docs" / "sdlc"
+        sdlc.mkdir(parents=True, exist_ok=True)
+        (sdlc / "prd.md").write_text(
+            "## Document Control\n\n"
+            "| Artifact ID | PRD-INIT-001 |\n"
+            "| Status | FROZEN |\n",
+            encoding="utf-8",
+        )
+
+    def _draft_prd(self, initiative):
+        sdlc = initiative / "docs" / "sdlc"
+        sdlc.mkdir(parents=True, exist_ok=True)
+        (sdlc / "prd.md").write_text(
+            "## Document Control\n\n"
+            "| Artifact ID | PRD-INIT-001 |\n"
+            "| Status | FREEZE_PENDING |\n",
+            encoding="utf-8",
+        )
+
+    def _driver(self, tmp_path, adapter=None):
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir(exist_ok=True)
+        _fake_kit(aieos_root, "SAD")
+        initiative = tmp_path / "init"
+        initiative.mkdir(exist_ok=True)
+        a = adapter or MockAdapter(preset_responses={"SAD": _PASS})
+        return initiative, HarnessDriver(
+            initiative, a, MockAdapter(preset_responses={"SAD": _PASS}),
+            aieos_root=aieos_root,
+        )
+
+    def test_refuses_when_upstream_is_not_frozen(self, tmp_path):
+        from src.driver import UpstreamNotFrozenError
+
+        class ExplodingAdapter(MockAdapter):
+            def invoke(self, request):  # pragma: no cover - must never run
+                raise AssertionError("generated against an unfrozen upstream PRD")
+
+        initiative, driver = self._driver(tmp_path, adapter=ExplodingAdapter())
+        self._draft_prd(initiative)
+        # SAD requires a frozen PRD; this one is only FREEZE_PENDING.
+        with pytest.raises(UpstreamNotFrozenError) as exc:
+            driver.run_artifact("SAD")
+        assert "PRD" in str(exc.value)
+
+    def test_refuses_when_upstream_is_absent_entirely(self, tmp_path):
+        from src.driver import UpstreamNotFrozenError
+
+        initiative, driver = self._driver(tmp_path)
+        (initiative / "docs" / "sdlc").mkdir(parents=True, exist_ok=True)
+        with pytest.raises(UpstreamNotFrozenError):
+            driver.run_artifact("SAD")
+
+    def test_proceeds_once_upstream_is_frozen(self, tmp_path):
+        initiative, driver = self._driver(tmp_path)
+        self._frozen_prd(initiative)
+        assert driver.run_artifact("SAD") == LifecycleResult.CONVERGED
+
+    def test_artifact_with_no_upstream_deps_is_unaffected(self, tmp_path):
+        """PRD has no dependencies -- the guard must not over-fire on entry artifacts."""
+        aieos_root = tmp_path / "aieos"
+        aieos_root.mkdir()
+        _fake_kit(aieos_root, "PRD")
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        driver = HarnessDriver(
+            initiative, MockAdapter(),
+            MockAdapter(preset_responses={"PRD": _PASS}),
+            aieos_root=aieos_root,
+        )
+        assert driver.run_artifact("PRD") == LifecycleResult.CONVERGED
+
+
 class TestFrozenArtifactsAreImmutable:
     """G-13: a FROZEN artifact must never be regenerated over.
 
