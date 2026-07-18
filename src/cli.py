@@ -603,6 +603,12 @@ def cmd_run_artifact(args: argparse.Namespace, config: HarnessConfig) -> int:
         Path(args.initiative).resolve(),
         gen_adapter,
         val_adapter,
+        # G-17: honour the configured convergence budget. This was omitted, so
+        # HarnessDriver's default of 3 always won and max_convergence_iterations
+        # in harness.yaml did nothing on the one path the dark factory uses.
+        # Setting it to 2 to cap spend during the 2026-07-14 dogfood was
+        # silently ignored. A config knob that does nothing is its own lie.
+        max_iterations=config.max_convergence_iterations,
         aieos_root=Path(args.aieos_root).resolve(),
     )
     try:
