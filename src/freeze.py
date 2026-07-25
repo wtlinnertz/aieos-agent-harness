@@ -30,6 +30,7 @@ from src.state import (
     append_journal_entry,
     find_artifact_path,
     read_er_state_block,
+    upsert_document_control_rows,
     write_artifact_status,
     write_er_state_block,
 )
@@ -66,6 +67,10 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _utctoday() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def apply_freeze_decision(
     initiative_path: Path,
     decision: FreezeGateDecision,
@@ -86,7 +91,10 @@ def apply_freeze_decision(
        (disk-based-state invariant) -- checked before any write so a partial
        write cannot happen.
 
-    On success it writes the Document Control ``Status`` cell to ``FROZEN``,
+    On success it writes the Document Control ``Status`` cell to ``FROZEN``
+    plus the provenance rows the schema requires at FROZEN (FR-018 D1):
+    ``Owner`` (the decision's ``owner``, defaulting to ``decided_by``),
+    ``Frozen By`` (``decided_by``), and ``Frozen Date`` (today, UTC). It then
     increments the ER frozen count (if ``er_path`` given), appends a
     ``POST_FREEZE`` Journal entry (if ``journal_path`` given), fires the optional
     ``on_post_freeze`` hook, and returns a :class:`FreezeResult`.
@@ -130,6 +138,22 @@ def apply_freeze_decision(
         initiative_path, decision.artifact_id, ArtifactStatus.FROZEN
     )
 
+    # D1: the freeze authority is the writer of the FROZEN provenance tuple.
+    # Owner defaults to the freeze approver unless the decision names a
+    # distinct owner; a FROZEN block therefore always satisfies
+    # frozen_requires_provenance without templates carrying these at DRAFT.
+    owner = (decision.owner or "").strip() or decision.decided_by
+    artifact_text = written.read_text(encoding="utf-8")
+    artifact_text = upsert_document_control_rows(
+        artifact_text,
+        {
+            "Owner": owner,
+            "Frozen By": decision.decided_by,
+            "Frozen Date": _utctoday(),
+        },
+    )
+    written.write_text(artifact_text, encoding="utf-8")
+
     frozen_count: Optional[int] = None
     if er_path is not None:
         er_state = read_er_state_block(er_path)
@@ -157,6 +181,7 @@ def apply_freeze_decision(
         path=str(written),
         decided_by=decision.decided_by,
         frozen_count=frozen_count,
+        owner=owner,
     )
 
     if on_post_freeze is not None:

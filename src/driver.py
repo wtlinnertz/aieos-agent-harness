@@ -16,6 +16,7 @@ Three operations, held stable:
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +33,11 @@ from src.models import (
     FreezeResult,
     LifecycleResult,
 )
-from src.state import read_er_state_block, read_frozen_artifacts
+from src.state import (
+    read_er_state_block,
+    read_frozen_artifacts,
+    upsert_document_control_rows,
+)
 
 
 class UpstreamNotFrozenError(RuntimeError):
@@ -236,16 +241,33 @@ class HarnessDriver:
                 artifact_id, sdlc / f"{artifact_type.lower()}.md"
             )
         sdlc.mkdir(parents=True, exist_ok=True)
-        doc = (
-            f"# {artifact_type}\n\n"
-            "## Document Control\n\n"
-            "| Field | Value |\n"
-            "|-------|-------|\n"
-            f"| Artifact ID | {artifact_id} |\n"
-            "| Status | FREEZE_PENDING |\n"
-            "| Last Validation | PASS |\n\n"
-            f"{content}\n"
-        )
+        if re.search(r"\|\s*Artifact\s+ID\s*\|", content, re.IGNORECASE):
+            # G-2: the artifact was authored from a canonical template and
+            # already carries its Document Control block -- update that block
+            # in place. Prepending a second one left converged artifacts with
+            # two blocks with conflicting status, parseable only by
+            # regex-first-match accident.
+            doc = upsert_document_control_rows(
+                content,
+                {
+                    "Artifact ID": artifact_id,
+                    "Status": "FREEZE_PENDING",
+                    "Last Validation": "PASS",
+                },
+            )
+            if not doc.endswith("\n"):
+                doc += "\n"
+        else:
+            doc = (
+                f"# {artifact_type}\n\n"
+                "## Document Control\n\n"
+                "| Field | Value |\n"
+                "|-------|-------|\n"
+                f"| Artifact ID | {artifact_id} |\n"
+                "| Status | FREEZE_PENDING |\n"
+                "| Last Validation | PASS |\n\n"
+                f"{content}\n"
+            )
         path = sdlc / f"{artifact_type.lower()}.md"
         path.write_text(doc, encoding="utf-8")
         return path

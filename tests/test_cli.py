@@ -230,6 +230,26 @@ class TestFreezeCommandFunctional:
         assert out["status"] == "FROZEN"
         assert out["status"] == ArtifactStatus.FROZEN.value
         assert out["artifact_id"] == "SAD-TEST-001"
+        # D1: owner defaults to decided_by and is reported in the payload.
+        assert out["owner"] == "Todd"
+
+    def test_freeze_writes_owner_from_decision(self, tmp_path, capsys):
+        h = _freeze_initiative(tmp_path)
+        decision = tmp_path / "decision.json"
+        decision.write_text(json.dumps({
+            "artifact_id": "SAD-TEST-001",
+            "outcome": "APPROVE",
+            "content_hash": h,
+            "decided_by": "Todd",
+            "owner": "Platform Team",
+        }))
+        rc = main(["freeze", "--initiative", str(tmp_path), "--decision", str(decision)])
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["owner"] == "Platform Team"
+        text = (tmp_path / "docs" / "sdlc" / "05-sad.md").read_text()
+        assert "| Owner | Platform Team |" in text
+        assert "| Frozen By | Todd |" in text
 
     def test_freeze_hash_mismatch_exit_one(self, tmp_path, capsys):
         _freeze_initiative(tmp_path)

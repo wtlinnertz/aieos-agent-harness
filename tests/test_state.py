@@ -11,9 +11,70 @@ from src.state import (
     read_er_state_block,
     read_frozen_artifacts,
     read_journal_entries,
+    upsert_document_control_rows,
     write_artifact_status,
     write_er_state_block,
 )
+
+
+CANONICAL_BLOCK = (
+    "# SAD\n\n"
+    "## Document Control\n\n"
+    "| Field | Value |\n"
+    "|-------|-------|\n"
+    "| Artifact ID | SAD-TEST-001 |\n"
+    "| Owner | {owner} |\n"
+    "| Status | DRAFT |\n\n"
+    "## Body\n\nContent.\n"
+)
+
+
+class TestUpsertDocumentControlRows:
+    """FR-018 D1/D2: the Document Control block grows through the lifecycle."""
+
+    def test_updates_existing_row_in_place(self):
+        out = upsert_document_control_rows(
+            CANONICAL_BLOCK, {"Status": "FREEZE_PENDING"}
+        )
+        assert "| Status | FREEZE_PENDING |" in out
+        assert "| Status | DRAFT |" not in out
+
+    def test_replaces_owner_placeholder_without_duplicating(self):
+        out = upsert_document_control_rows(CANONICAL_BLOCK, {"Owner": "Todd"})
+        assert "| Owner | Todd |" in out
+        assert out.count("| Owner |") == 1
+
+    def test_appends_missing_rows_to_table_end(self):
+        out = upsert_document_control_rows(
+            CANONICAL_BLOCK,
+            {"Frozen By": "Todd", "Frozen Date": "2026-07-25"},
+        )
+        # New rows land inside the table (before the ## Body section), in order.
+        assert out.index("| Frozen By | Todd |") < out.index("## Body")
+        assert out.index("| Frozen By |") < out.index("| Frozen Date | 2026-07-25 |")
+        assert out.index("| Frozen Date |") < out.index("## Body")
+
+    def test_mixed_update_and_insert(self):
+        out = upsert_document_control_rows(
+            CANONICAL_BLOCK,
+            {"Status": "FROZEN", "Frozen By": "Todd", "Frozen Date": "2026-07-25"},
+        )
+        assert "| Status | FROZEN |" in out
+        assert out.count("| Status |") == 1
+        assert "| Frozen By | Todd |" in out
+
+    def test_refuses_text_without_artifact_id_row(self):
+        with pytest.raises(ValueError):
+            upsert_document_control_rows("# Just prose\n", {"Owner": "Todd"})
+
+    def test_label_match_is_exact_not_substring(self):
+        # "Status" must not clobber a row whose label merely contains it.
+        text = CANONICAL_BLOCK.replace(
+            "| Status | DRAFT |", "| ADR Status | Proposed |\n| Status | DRAFT |"
+        )
+        out = upsert_document_control_rows(text, {"Status": "FREEZE_PENDING"})
+        assert "| ADR Status | Proposed |" in out
+        assert "| Status | FREEZE_PENDING |" in out
 
 
 class TestERStateBlockRoundTrip:
