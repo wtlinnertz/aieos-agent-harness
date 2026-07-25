@@ -378,6 +378,50 @@ class TestFrozenArtifactsAreImmutable:
             driver._persist_freeze_pending("SAD", "malicious replacement")
         assert path.read_text() == before
 
+    def test_persist_updates_canonical_block_instead_of_prepending(self, tmp_path):
+        """G-2: a converged artifact carries exactly ONE Document Control block.
+
+        Content authored from a canonical template already has the block;
+        _persist_freeze_pending must grow it in place, not prepend a second
+        one with conflicting status.
+        """
+        import re
+
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        content = (
+            "# PRD\n\n"
+            "## Document Control\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Artifact ID | PRD-{PROJECT}-001 |\n"
+            "| Owner | {owner} |\n"
+            "| Status | DRAFT |\n\n"
+            "## Body\n\nGenerated from a canonical template.\n"
+        )
+        driver = HarnessDriver(initiative, MockAdapter(), MockAdapter())
+        path = driver._persist_freeze_pending("PRD", content)
+        text = path.read_text()
+        assert text.count("## Document Control") == 1
+        assert len(re.findall(r"\|\s*Artifact\s+ID\s*\|", text, re.IGNORECASE)) == 1
+        assert f"| Artifact ID | PRD-{initiative.name.upper()}-001 |" in text
+        assert "| Status | FREEZE_PENDING |" in text
+        assert "| Last Validation | PASS |" in text
+        # Owner stays a placeholder until the freeze authority writes it (D1).
+        assert "| Owner | {owner} |" in text
+        assert "## Body" in text
+
+    def test_persist_blockless_content_still_gets_prepended_block(self, tmp_path):
+        """Legacy path: content without any block still gets a canonical one."""
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        driver = HarnessDriver(initiative, MockAdapter(), MockAdapter())
+        path = driver._persist_freeze_pending("PRD", "Prose only, no block.")
+        text = path.read_text()
+        assert text.count("## Document Control") == 1
+        assert f"| Artifact ID | PRD-{initiative.name.upper()}-001 |" in text
+        assert "| Status | FREEZE_PENDING |" in text
+
     def test_non_frozen_artifact_is_still_regenerated(self, tmp_path):
         """The guard must not over-fire: FREEZE_PENDING is fair game."""
         aieos_root = tmp_path / "aieos"

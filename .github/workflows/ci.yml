@@ -27,6 +27,15 @@ jobs:
       # actions/checkout v6.0.2
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
+      # actions/checkout v6.0.2 — aieos-schema, for the cross-repo Document
+      # Control conformance integration tests (they skip when this is absent;
+      # pytest testpaths=tests keeps this checkout out of collection)
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          repository: wtlinnertz/aieos-schema
+          ref: main
+          path: aieos-schema
+
       # actions/setup-python v6.2.0
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:

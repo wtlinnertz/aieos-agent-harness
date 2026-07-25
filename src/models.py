@@ -197,6 +197,9 @@ class FreezeGateDecision:
       without a human decision; such a decision is always refused.
     - ``conditions`` -- optional conditions attached to APPROVE_WITH_CONDITIONS.
     - ``rationale`` -- optional free-text justification.
+    - ``owner`` -- optional distinct accountable owner written to the Document
+      Control ``| Owner |`` row at freeze (FR-018 D1). Defaults to
+      ``decided_by`` when absent.
     """
 
     artifact_id: str
@@ -206,6 +209,7 @@ class FreezeGateDecision:
     auto_freeze_attempted: bool = False
     conditions: list[str] = field(default_factory=list)
     rationale: str = ""
+    owner: Optional[str] = None
 
 
 @dataclass
@@ -217,3 +221,4 @@ class FreezeResult:
     path: str
     decided_by: str
     frozen_count: Optional[int] = None
+    owner: Optional[str] = None

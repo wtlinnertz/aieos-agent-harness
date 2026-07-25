@@ -156,6 +156,55 @@ def write_artifact_status(
     return target
 
 
+def upsert_document_control_rows(text: str, rows: dict[str, str]) -> str:
+    """Set ``| <label> | <value> |`` cells in a Document Control table, adding
+    rows that are not present yet.
+
+    The canonical FR-018 block *grows* through the lifecycle: a template
+    carries only ``Artifact ID`` / ``Owner`` / ``Status`` (D2), the conductor
+    adds ``Last Validation`` at FREEZE_PENDING, and the freeze authority adds
+    the provenance rows at FROZEN (D1). Existing rows are updated in place
+    (first match, the same convention as :func:`write_artifact_status`);
+    missing rows are appended to the end of the table that carries the
+    ``Artifact ID`` row.
+
+    Raises ``ValueError`` if ``text`` has no ``| Artifact ID |`` row -- this
+    writer grows an existing block, it never conjures one into prose.
+    """
+    if not re.search(r"\|\s*Artifact\s+ID\s*\|", text, re.IGNORECASE):
+        raise ValueError(
+            "text has no Document Control block (no '| Artifact ID |' row)"
+        )
+
+    to_insert: list[tuple[str, str]] = []
+    for label, value in rows.items():
+        pattern = rf"(\|\s*{re.escape(label)}\s*\|)\s*.*?\s*\|"
+        if re.search(pattern, text, re.IGNORECASE):
+            text = re.sub(
+                pattern, rf"\1 {value} |", text, count=1, flags=re.IGNORECASE
+            )
+        else:
+            to_insert.append((label, value))
+
+    if to_insert:
+        lines = text.splitlines(keepends=True)
+        anchor = next(
+            i
+            for i, line in enumerate(lines)
+            if re.search(r"\|\s*Artifact\s+ID\s*\|", line, re.IGNORECASE)
+        )
+        end = anchor
+        while end + 1 < len(lines) and lines[end + 1].lstrip().startswith("|"):
+            end += 1
+        if not lines[end].endswith("\n"):
+            lines[end] += "\n"
+        new_rows = [f"| {label} | {value} |\n" for label, value in to_insert]
+        lines[end + 1 : end + 1] = new_rows
+        text = "".join(lines)
+
+    return text
+
+
 def append_journal_entry(
     journal_path: Path, entry_type: str, fields: dict
 ) -> None:

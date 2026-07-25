@@ -67,6 +67,7 @@ def _decision(artifact_id, content_hash, **kw):
         auto_freeze_attempted=kw.get("auto_freeze_attempted", False),
         conditions=kw.get("conditions", []),
         rationale=kw.get("rationale", ""),
+        owner=kw.get("owner"),
     )
 
 
@@ -112,6 +113,60 @@ class TestApplyFreezeHappyPath:
         result = apply_freeze_decision(root, _decision(aid, h))
         assert result.frozen_count is None
         assert read_frozen_artifacts(root)[aid] == ArtifactStatus.FROZEN
+
+
+class TestFreezeWritesProvenance:
+    """FR-018 D1: the freeze authority writes the FROZEN provenance tuple --
+    Owner (defaulting to the approver), Frozen By, Frozen Date -- so a FROZEN
+    block always satisfies frozen_requires_provenance."""
+
+    def test_owner_defaults_to_decided_by(self, tmp_path):
+        root, aid, h = _make_initiative(tmp_path)
+        result = apply_freeze_decision(root, _decision(aid, h))
+        text = Path(result.path).read_text()
+        assert "| Owner | Todd Linnertz |" in text
+        assert result.owner == "Todd Linnertz"
+
+    def test_distinct_owner_when_decision_names_one(self, tmp_path):
+        root, aid, h = _make_initiative(tmp_path)
+        result = apply_freeze_decision(
+            root, _decision(aid, h, owner="Platform Team")
+        )
+        text = Path(result.path).read_text()
+        assert "| Owner | Platform Team |" in text
+        assert "| Frozen By | Todd Linnertz |" in text
+        assert result.owner == "Platform Team"
+
+    def test_frozen_by_and_frozen_date_written(self, tmp_path):
+        import re
+
+        root, aid, h = _make_initiative(tmp_path)
+        result = apply_freeze_decision(root, _decision(aid, h))
+        text = Path(result.path).read_text()
+        assert "| Frozen By | Todd Linnertz |" in text
+        assert re.search(r"\|\s*Frozen Date\s*\|\s*\d{4}-\d{2}-\d{2}\s*\|", text)
+
+    def test_owner_placeholder_row_is_replaced_not_duplicated(self, tmp_path):
+        # A template-authored artifact carries `| Owner | {owner} |` (D2).
+        sdlc = tmp_path / "docs" / "sdlc"
+        sdlc.mkdir(parents=True)
+        artifact = (
+            "# SAD\n\n"
+            "## Document Control\n\n"
+            "| Field | Value |\n"
+            "|-------|-------|\n"
+            "| Artifact ID | SAD-TEST-001 |\n"
+            "| Owner | {owner} |\n"
+            "| Status | FREEZE_PENDING |\n\n"
+            "## Body\n\nArchitecture details.\n"
+        )
+        (sdlc / "05-sad.md").write_text(artifact)
+        h = hash_artifact_content((sdlc / "05-sad.md").read_text())
+        result = apply_freeze_decision(tmp_path, _decision("SAD-TEST-001", h))
+        text = Path(result.path).read_text()
+        assert text.count("| Owner |") == 1
+        assert "| Owner | Todd Linnertz |" in text
+        assert "{owner}" not in text
 
 
 class TestApplyFreezeRefused:

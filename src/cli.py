@@ -510,6 +510,7 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
         auto_freeze_attempted=bool(raw.get("auto_freeze_attempted", False)),
         conditions=list(raw.get("conditions", [])),
         rationale=raw.get("rationale", ""),
+        owner=args.owner or raw.get("owner") or None,
     )
 
     # Full bookkeeping (frozen count + journal) when the engagement record exists.
@@ -542,6 +543,8 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
                 "path": result.path,
                 "frozen_count": result.frozen_count,
                 "decided_by": result.decided_by,
+                # D1: the Owner actually written to Document Control.
+                "owner": result.owner,
             }
         )
     )
@@ -725,6 +728,10 @@ def main(argv: list[str] | None = None) -> int:
         "--decision", required=True, help="Path to serialized FreezeGateDecision JSON"
     )
     fr.add_argument("--decided-by", help="Human identity (overrides decision JSON)")
+    fr.add_argument(
+        "--owner",
+        help="Accountable owner written to Document Control (defaults to decided-by)",
+    )
 
     # health
     # run-artifact (dark-factory subprocess seam)
