@@ -153,6 +153,7 @@ class HarnessDriver:
             raise UpstreamNotFrozenError(artifact_type, upstream_check.reason)
 
         from src.cli import _collect_upstream_artifacts, _resolve_kit_files
+        from src.inputs import resolve_declared_inputs
 
         spec, template, prompt = _resolve_kit_files(self._aieos_root, artifact_type)
         if not spec:
@@ -160,6 +161,14 @@ class HarnessDriver:
                 f"No kit spec for artifact type {artifact_type!r} under {self._aieos_root}"
             )
         upstream = _collect_upstream_artifacts(self._initiative)
+
+        # G-3/G-5: manifest-declared inputs -- principles files (mandatory,
+        # fail-fast when missing) and the entry brief (optional). Included in
+        # BOTH requests: the generator needs them to satisfy the prompt's
+        # coverage requirements, the validator to judge that coverage.
+        declared = resolve_declared_inputs(
+            self._aieos_root, self._initiative, artifact_type
+        )
 
         validator_prompt = ""
         for kit_dir in sorted(self._aieos_root.iterdir()):
@@ -182,6 +191,7 @@ class HarnessDriver:
             current_artifact=None,
             correction_constraints=[],
             metadata={"initiative": str(self._initiative), "artifact_id": artifact_type},
+            declared_inputs=declared,
         )
         val_request = AgentRequest(
             artifact_type=artifact_type,
@@ -193,6 +203,7 @@ class HarnessDriver:
             current_artifact=None,
             correction_constraints=[],
             metadata={"initiative": str(self._initiative)},
+            declared_inputs=declared,
         )
 
         loop = ConvergenceLoop(

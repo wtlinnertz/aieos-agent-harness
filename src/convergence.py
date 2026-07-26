@@ -172,6 +172,7 @@ class ConvergenceLoop:
                 current_artifact=gen_response.content,
                 correction_constraints=val_request.correction_constraints,
                 metadata=val_request.metadata,
+                declared_inputs=val_request.declared_inputs,
             )
             val_response = self._val.invoke(validation_request)
 
@@ -272,6 +273,7 @@ class ConvergenceLoop:
                     **gen_request.metadata,
                     "lens": lens_name,
                 },
+                declared_inputs=gen_request.declared_inputs,
             )
 
             try:
@@ -383,4 +385,5 @@ class ConvergenceLoop:
             current_artifact=original.current_artifact,
             correction_constraints=constraints,
             metadata=original.metadata,
+            declared_inputs=original.declared_inputs,
         )

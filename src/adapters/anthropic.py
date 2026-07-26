@@ -100,6 +100,10 @@ class AnthropicAdapter:
         for artifact_id, content in request.upstream_artifacts.items():
             parts.append(f"\n\n## {artifact_id}\n\n{content}")
 
+        # Declared inputs (G-3/G-5): principles files + entry brief.
+        for input_key, content in request.declared_inputs.items():
+            parts.append(f"\n\n## Declared Input — {input_key}\n\n{content}")
+
         # Current artifact (if present — used for validation requests)
         if request.current_artifact:
             parts.append(
@@ -152,6 +156,7 @@ class AnthropicAdapter:
             + request.template_content
             + request.prompt_content
             + "".join(request.upstream_artifacts.values())
+            + "".join(request.declared_inputs.values())
         )
         input_hash = hashlib.sha256(hash_input.encode()).hexdigest()
 
