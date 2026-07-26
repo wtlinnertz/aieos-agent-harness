@@ -56,11 +56,18 @@ class FreezeError(Exception):
 def hash_artifact_content(text: str) -> str:
     """SHA-256 hex digest of artifact text -- the identity a decision pins.
 
-    Matches the digest convention used elsewhere in the harness (the mock
-    adapter's ``input_content_hash``), so the console can compute the same hash
-    over the artifact it shows the human.
+    Line endings are normalized to LF (``\\r\\n`` and lone ``\\r`` become
+    ``\\n``) before hashing, so the digest names the text the human saw, not
+    the platform's byte encoding of it (G-19). Without this, a caller that
+    hashes raw file content (the console) and one that hashes ``read_text()``
+    output (universal newlines already fold CRLF to LF) disagree on every
+    CRLF-stored artifact and the freeze is refused with ``hash_mismatch``.
+    The console's ``hashArtifact`` applies the same normalization; the
+    convention is recorded in aieos-schema ``document-control.yaml`` under
+    ``maps_to``.
     """
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _utcnow() -> str:
@@ -152,7 +159,9 @@ def apply_freeze_decision(
             "Frozen Date": _utctoday(),
         },
     )
-    written.write_text(artifact_text, encoding="utf-8")
+    # newline="\n": artifact writes are LF on every platform (G-19); the
+    # default would re-encode the whole file as CRLF on Windows.
+    written.write_text(artifact_text, encoding="utf-8", newline="\n")
 
     frozen_count: Optional[int] = None
     if er_path is not None:

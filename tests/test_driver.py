@@ -422,6 +422,16 @@ class TestFrozenArtifactsAreImmutable:
         assert f"| Artifact ID | PRD-{initiative.name.upper()}-001 |" in text
         assert "| Status | FREEZE_PENDING |" in text
 
+    def test_persist_writes_lf_on_every_platform(self, tmp_path):
+        """G-19: the default ``write_text`` newline translation produced CRLF
+        artifacts on Windows -- the files the console then could not freeze.
+        Fails on Windows CI without ``newline="\\n"``; vacuous on POSIX."""
+        initiative = tmp_path / "init"
+        initiative.mkdir()
+        driver = HarnessDriver(initiative, MockAdapter(), MockAdapter())
+        path = driver._persist_freeze_pending("PRD", "Prose only, no block.")
+        assert b"\r" not in path.read_bytes()
+
     def test_non_frozen_artifact_is_still_regenerated(self, tmp_path):
         """The guard must not over-fire: FREEZE_PENDING is fair game."""
         aieos_root = tmp_path / "aieos"

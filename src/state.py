@@ -55,7 +55,7 @@ def write_er_state_block(er_path: Path, state: ERStateBlock) -> None:
         replacement = rf"\1 {value} |"
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
-    er_path.write_text(text, encoding="utf-8")
+    er_path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def read_frozen_artifacts(initiative_path: Path) -> dict[str, ArtifactStatus]:
@@ -152,7 +152,10 @@ def write_artifact_status(
         count=1,
         flags=re.IGNORECASE,
     )
-    target.write_text(new_text, encoding="utf-8")
+    # newline="\n": state writes are LF on every platform (G-19); the default
+    # would re-encode the whole file as CRLF on Windows, and CRLF artifacts are
+    # what broke the console freeze seam.
+    target.write_text(new_text, encoding="utf-8", newline="\n")
     return target
 
 
@@ -228,7 +231,7 @@ def append_journal_entry(
         lines.append(f"| {key} | {value} |")
     lines.append("")
 
-    with open(journal_path, "a", encoding="utf-8") as f:
+    with open(journal_path, "a", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines))
 
 
