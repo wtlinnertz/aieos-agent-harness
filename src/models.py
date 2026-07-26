@@ -69,6 +69,10 @@ class AgentRequest:
     current_artifact: Optional[str]
     correction_constraints: list[str]
     metadata: dict[str, str]
+    # G-3/G-5 (manifest 1.1): manifest-declared non-upstream inputs, resolved
+    # by src.inputs.resolve_declared_inputs -- principles files (framework)
+    # and the entry brief (human), keyed "<role>: <ref>".
+    declared_inputs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
