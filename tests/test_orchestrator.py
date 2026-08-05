@@ -448,3 +448,106 @@ class TestReviewUsesSeperateAdapter:
         )
         # No review_adapter_name → self._review_name == self._gen_name
         assert orch._review_name == orch._gen_name
+
+
+class TestOrchestratorWritesAreLf:
+    """G-19: ``_execute_item_phase`` writes work-item artifacts LF on every platform.
+
+    Same class of defect as the state/freeze/driver writers covered by
+    ``TestStateWritesAreLf`` in test_state.py: the default ``write_text``
+    translates LF to ``os.linesep``, so on Windows this writer manufactured
+    CRLF artifacts -- the very thing that made every console freeze fail with
+    ``hash_mismatch`` before the hashers were normalized. Hash normalization
+    makes existing CRLF artifacts freezable; these tests stop the orchestrator
+    from producing new ones. On Windows CI they fail without ``newline="\\n"``;
+    on POSIX they are vacuous but cheap.
+
+    Scope note (verified, not assumed): ``newline="\\n"`` suppresses the
+    LF->os.linesep translation on write; it does NOT fold ``\\r\\n`` that is
+    already present in the string being written. So a model response that
+    itself contains CRLF still lands as CRLF on disk. That is not a freeze
+    defect -- ``hash_artifact_content`` LF-normalizes internally, which is
+    what the third test pins -- but it does mean this writer normalizes less
+    than the state writers do (they round-trip through ``read_text``, whose
+    universal newlines fold CRLF for free). Logged, not widened.
+    """
+
+    LF_CONTENT = "# Work item output\n\nLine one.\nLine two.\n"
+    CRLF_CONTENT = "# Work item output\r\n\r\nLine one.\r\nLine two.\r\n"
+
+    def _single_item_plan(self):
+        return _make_plan(
+            [
+                ExecutionGroup(
+                    name="WG-1",
+                    items=[_make_item("WDD-TEST-001", "WG-1")],
+                    mode="phase_sync",
+                )
+            ]
+        )
+
+    def test_lf_response_stays_lf_on_disk(
+        self, tmp_path, val_adapter, phase_prompts
+    ):
+        """The actual regression guard: no LF->os.linesep translation on write.
+
+        This is the defect 2fe4c80 fixed. Adapters emit LF; without
+        ``newline="\\n"`` this writer turned every one of those into CRLF on
+        Windows, which is how dark-factory artifacts became unfreezable.
+        """
+        gen = SequentialMockAdapter([self.LF_CONTENT] * 200)
+        orch = _build_orchestrator(
+            self._single_item_plan(), tmp_path, gen, val_adapter, phase_prompts
+        )
+
+        result = orch.execute()
+        assert result.status == "complete"
+
+        written = sorted((tmp_path / "docs" / "sdlc").glob("WDD-TEST-001-*.md"))
+        assert written, "orchestrator wrote no work-item artifacts"
+        for path in written:
+            assert b"\r" not in path.read_bytes(), (
+                f"LF was translated to CRLF in {path.name} -- "
+                'the writer lost newline="\\n"'
+            )
+
+    def test_response_content_is_written_verbatim(
+        self, tmp_path, val_adapter, phase_prompts
+    ):
+        """The writer transmits, it does not rewrite.
+
+        Pins the scope note above: CRLF arriving from the adapter is preserved
+        byte for byte. If someone later adds normalization here, this test
+        should be updated deliberately rather than silently.
+        """
+        gen = SequentialMockAdapter([self.CRLF_CONTENT] * 200)
+        orch = _build_orchestrator(
+            self._single_item_plan(), tmp_path, gen, val_adapter, phase_prompts
+        )
+        orch.execute()
+
+        path = tmp_path / "docs" / "sdlc" / "WDD-TEST-001-plan.md"
+        assert path.read_bytes() == self.CRLF_CONTENT.encode("utf-8")
+
+    def test_artifact_hashes_equal_the_harness_freeze_digest(
+        self, tmp_path, val_adapter, phase_prompts
+    ):
+        """The whole point: what the orchestrator writes is freezable.
+
+        ``hash_artifact_content`` LF-normalizes internally, so this would pass
+        even on a CRLF file -- but it pins the end-to-end property the G-19 fix
+        exists to guarantee, rather than only the byte-level one above.
+        """
+        from src.freeze import hash_artifact_content
+
+        gen = SequentialMockAdapter([self.CRLF_CONTENT] * 200)
+        orch = _build_orchestrator(
+            self._single_item_plan(), tmp_path, gen, val_adapter, phase_prompts
+        )
+        orch.execute()
+
+        path = tmp_path / "docs" / "sdlc" / "WDD-TEST-001-plan.md"
+        on_disk = path.read_text(encoding="utf-8")
+        assert hash_artifact_content(on_disk) == hash_artifact_content(
+            self.CRLF_CONTENT
+        )
