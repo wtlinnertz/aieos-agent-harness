@@ -376,3 +376,42 @@ class TestFindArtifactPath:
         d.mkdir(parents=True)
         (d / "05-sad.md").write_text("| Artifact ID | SAD-X-001 |\n| Status | DRAFT |\n")
         assert find_artifact_path(tmp_path, "SAD-X-001").name == "05-sad.md"
+
+
+class TestStateWritesAreLf:
+    """G-19: every state write is LF on every platform (``newline="\n"``).
+
+    The default ``write_text`` translated LF to ``os.linesep`` -- CRLF on
+    Windows -- which is how dark-factory artifacts became CRLF on disk in the
+    first place. Hash normalization makes CRLF artifacts freezable anyway;
+    these tests keep the writers from manufacturing new ones. On Windows CI
+    they fail without ``newline="\n"``; on POSIX they are vacuous but cheap.
+    """
+
+    def test_write_artifact_status_rewrites_crlf_file_as_lf(self, tmp_path):
+        sdlc = tmp_path / "docs" / "sdlc"
+        sdlc.mkdir(parents=True)
+        crlf = CANONICAL_BLOCK.replace("\n", "\r\n")
+        (sdlc / "05-sad.md").write_bytes(crlf.encode("utf-8"))
+        target = write_artifact_status(
+            tmp_path, "SAD-TEST-001", ArtifactStatus.FREEZE_PENDING
+        )
+        assert b"\r" not in target.read_bytes()
+
+    def test_write_er_state_block_is_lf(self, tmp_path):
+        er = tmp_path / "er.md"
+        er.write_bytes(
+            b"| Current Layer | Layer 4 |\r\n| Frozen Count | 1 |\r\n"
+            b"| Last Updated | 2026-07-11T10:00:00Z |\r\n"
+        )
+        state = read_er_state_block(er)
+        state.frozen_count += 1
+        write_er_state_block(er, state)
+        assert b"\r" not in er.read_bytes()
+
+    def test_append_journal_entry_appends_lf(self, tmp_path):
+        journal = tmp_path / "journal.md"
+        journal.write_bytes(b"# Journal\r\n")
+        append_journal_entry(journal, "Freeze", {"Artifact": "SAD-TEST-001"})
+        appended = journal.read_bytes().split(b"### Freeze")[1]
+        assert b"\r" not in appended

@@ -308,7 +308,10 @@ class WDDOrchestrator:
             self._initiative / "docs" / "sdlc" / f"{item.id}-{phase}.md"
         )
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(response.content, encoding="utf-8")
+        # newline="\n": artifact writes are LF on every platform (G-19).
+        Path(output_path).write_text(
+            response.content, encoding="utf-8", newline="\n"
+        )
 
         return {
             "output_path": output_path,

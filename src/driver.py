@@ -280,7 +280,10 @@ class HarnessDriver:
                 f"{content}\n"
             )
         path = sdlc / f"{artifact_type.lower()}.md"
-        path.write_text(doc, encoding="utf-8")
+        # newline="\n": the default translated LF to CRLF on Windows, which is
+        # how dark-factory artifacts became CRLF on disk and (pre-G-19)
+        # unfreezable through the console's hash check.
+        path.write_text(doc, encoding="utf-8", newline="\n")
         return path
 
     def run_artifact_lifecycle(

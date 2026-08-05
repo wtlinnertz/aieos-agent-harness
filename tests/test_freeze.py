@@ -225,8 +225,109 @@ class TestApplyFreezeMissingJournal:
         assert read_frozen_artifacts(root)[aid] == ArtifactStatus.FREEZE_PENDING
 
 
+# The cross-language hash contract fixture (G-19). The LF and CRLF spellings
+# are the same text; both must produce the pinned digest.
+G19_FIXTURE_LF = (
+    "# SAD\n\n| Artifact ID | SAD-TEST-001 |\n| Status | FREEZE_PENDING |\n"
+)
+G19_FIXTURE_CRLF = G19_FIXTURE_LF.replace("\n", "\r\n")
+G19_FIXTURE_DIGEST = (
+    "fce70731c15162436e1d5c70294e025229fa74726bac0332e8a9f70e03437b6f"
+)
+
+
 class TestHashHelper:
     def test_hash_is_sha256_hex(self, tmp_path):
         h = hash_artifact_content("hello")
         assert len(h) == 64
         assert h == hash_artifact_content("hello")
+
+    def test_crlf_and_lf_hash_identically(self):
+        assert hash_artifact_content("a\r\nb\r\n") == hash_artifact_content("a\nb\n")
+
+    def test_lone_cr_normalizes_to_lf(self):
+        assert hash_artifact_content("a\rb") == hash_artifact_content("a\nb")
+
+    def test_pinned_cross_language_digest(self):
+        """G-19 contract: the same literal digest is pinned in the console's
+        harness-freeze-service.test.ts. If this assertion has to change, the
+        two sides no longer agree on artifact identity -- update both or
+        neither."""
+        assert hash_artifact_content(G19_FIXTURE_LF) == G19_FIXTURE_DIGEST
+        assert hash_artifact_content(G19_FIXTURE_CRLF) == G19_FIXTURE_DIGEST
+
+
+class TestFreezeCrlfArtifact:
+    """G-19: a CRLF-stored artifact freezes through the console convention.
+
+    The console hashes the exact text it showed the human (line endings as
+    stored on disk); the freeze authority hashes ``read_text()`` output, where
+    universal newlines have already folded CRLF to LF. Before LF normalization
+    lived inside ``hash_artifact_content``, those two digests disagreed on
+    every CRLF artifact -- the default state of anything ``write_text`` had
+    produced on Windows -- and every console freeze was refused with
+    ``hash_mismatch``. These tests drive a real CRLF file end to end.
+    """
+
+    def _crlf_initiative(self, tmp_path):
+        """Returns (root, artifact_id, shown_content) with CRLF files on disk,
+        exactly as a pre-G-19 Windows ``write_text`` left them."""
+        sdlc = tmp_path / "docs" / "sdlc"
+        sdlc.mkdir(parents=True)
+        shown = (
+            "# SAD\r\n\r\n"
+            "## Document Control\r\n\r\n"
+            "| Field | Value |\r\n"
+            "|-------|-------|\r\n"
+            "| Artifact ID | SAD-TEST-001 |\r\n"
+            "| Status | FREEZE_PENDING |\r\n\r\n"
+            "## Body\r\n\r\nArchitecture details.\r\n"
+        )
+        (sdlc / "05-sad.md").write_bytes(shown.encode("utf-8"))
+
+        eng = tmp_path / "docs" / "engagement"
+        eng.mkdir(parents=True)
+        (eng / "er.md").write_bytes(
+            ER_CONTENT.replace("\n", "\r\n").encode("utf-8")
+        )
+        (eng / "journal.md").write_bytes(b"# Sherpa Journal: TEST-001\r\n")
+        return tmp_path, "SAD-TEST-001", shown
+
+    def test_console_convention_hash_freezes_crlf_artifact(self, tmp_path):
+        root, aid, shown = self._crlf_initiative(tmp_path)
+        er = root / "docs" / "engagement" / "er.md"
+        journal = root / "docs" / "engagement" / "journal.md"
+        # The console computes the decision hash over the raw shown content,
+        # CRLF and all.
+        result = apply_freeze_decision(
+            root,
+            _decision(aid, hash_artifact_content(shown)),
+            er_path=er,
+            journal_path=journal,
+        )
+        assert result.status == ArtifactStatus.FROZEN
+        assert read_frozen_artifacts(root)[aid] == ArtifactStatus.FROZEN
+
+    def test_frozen_artifact_rewritten_as_lf(self, tmp_path):
+        root, aid, shown = self._crlf_initiative(tmp_path)
+        result = apply_freeze_decision(
+            root, _decision(aid, hash_artifact_content(shown))
+        )
+        assert b"\r" not in Path(result.path).read_bytes()
+
+    def test_er_rewritten_lf_and_journal_appends_lf(self, tmp_path):
+        root, aid, shown = self._crlf_initiative(tmp_path)
+        er = root / "docs" / "engagement" / "er.md"
+        journal = root / "docs" / "engagement" / "journal.md"
+        apply_freeze_decision(
+            root,
+            _decision(aid, hash_artifact_content(shown)),
+            er_path=er,
+            journal_path=journal,
+        )
+        # The ER is rewritten whole, so the entire file comes out LF. The
+        # journal only appends; the pre-existing CRLF header stays, but the
+        # appended Freeze entry must be LF.
+        assert b"\r" not in er.read_bytes()
+        appended = journal.read_bytes().split(b"### Freeze")[1]
+        assert b"\r" not in appended
