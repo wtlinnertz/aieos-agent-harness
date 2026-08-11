@@ -117,6 +117,12 @@ class OpenAIAdapter:
         client = self._get_client()
         system_message, user_message = self._build_messages(request)
 
+        # FR-014: pass temperature only when the request pins one (judge
+        # calls pin 0.0); None keeps the provider default for generation.
+        extra: dict = {}
+        if request.temperature is not None:
+            extra["temperature"] = request.temperature
+
         start = time.monotonic()
         response = client.chat.completions.create(
             model=self._model,
@@ -125,6 +131,7 @@ class OpenAIAdapter:
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_message},
             ],
+            **extra,
         )
         latency_ms = (time.monotonic() - start) * 1000
 
