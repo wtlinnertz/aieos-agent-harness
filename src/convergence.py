@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -161,7 +162,11 @@ class ConvergenceLoop:
                     gen_response.tokens_out,
                 )
 
-            # Step 2: Validate (fresh request with generated content)
+            # Step 2: Validate (fresh request with generated content).
+            # FR-014: temperature pinned to 0.0 HERE, structurally -- the loop
+            # is the one place that knows a call is a judge call. G-9's second
+            # receipt was the same prompt and model flipping one hard gate
+            # run-to-run; a sampling judge measures noise, not the artifact.
             validation_request = AgentRequest(
                 artifact_type=val_request.artifact_type,
                 event=val_request.event,
@@ -173,19 +178,32 @@ class ConvergenceLoop:
                 correction_constraints=val_request.correction_constraints,
                 metadata=val_request.metadata,
                 declared_inputs=val_request.declared_inputs,
+                temperature=0.0,
             )
             val_response = self._val.invoke(validation_request)
 
             # Step 3: Parse validation result
             result = parse_validation_result(val_response)
 
-            # Record in ledger
+            # Record in ledger. FR-014: every verdict carries provenance --
+            # the sha256 of the prompt content the judge actually received
+            # (content-addressed, same discipline as the freeze authority's
+            # artifact hash), plus provider, model, and temperature. A verdict
+            # that cannot be traced to a judge version is not calibration data.
             ledger_entry = {
                 "iteration": state.current_iteration,
                 "status": result.status,
                 "hard_gates": dict(result.hard_gates),
                 "blocking_issues": list(result.blocking_issues),
                 "completeness_score": result.completeness_score,
+                "provenance": {
+                    "validator_prompt_sha256": hashlib.sha256(
+                        validation_request.prompt_content.encode("utf-8")
+                    ).hexdigest(),
+                    "provider": val_response.provider,
+                    "model": val_response.model,
+                    "temperature": validation_request.temperature,
+                },
             }
             state.ledger.append(ledger_entry)
 
@@ -274,6 +292,8 @@ class ConvergenceLoop:
                     "lens": lens_name,
                 },
                 declared_inputs=gen_request.declared_inputs,
+                # FR-014: a lens reviewer is a judge; same determinism rule.
+                temperature=0.0,
             )
 
             try:
@@ -285,6 +305,16 @@ class ConvergenceLoop:
                     "lens": lens_name,
                     "status": lens_result.status,
                     "blocking_issues": list(lens_result.blocking_issues),
+                    # FR-014: lens verdicts carry provenance too -- slice 2
+                    # calibrates them eventually, so capture starts now.
+                    "provenance": {
+                        "validator_prompt_sha256": hashlib.sha256(
+                            lens_request.prompt_content.encode("utf-8")
+                        ).hexdigest(),
+                        "provider": lens_response.provider,
+                        "model": lens_response.model,
+                        "temperature": lens_request.temperature,
+                    },
                 })
 
                 if lens_result.status == "FAIL":

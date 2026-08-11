@@ -16,7 +16,9 @@ Three operations, held stable:
 
 from __future__ import annotations
 
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +29,7 @@ from src.invariants import UPSTREAM_DEPENDENCIES, check_freeze_before_promote
 from src.models import (
     AgentRequest,
     ArtifactStatus,
+    ConvergenceState,
     ERStateBlock,
     LifecycleEvent,
     FreezeGateDecision,
@@ -209,7 +212,10 @@ class HarnessDriver:
         loop = ConvergenceLoop(
             self._gen, self._val, max_iterations=self._max_iterations
         )
-        response, result, _state = loop.run(gen_request, val_request)
+        response, result, state = loop.run(gen_request, val_request)
+        # FR-014 / G-10: the ledger used to be discarded here, so an
+        # escalation reported no reason and no verdict survived the run.
+        self._persist_verdicts(artifact_type, state)
         if result.status == "PASS":
             # Drive the converged artifact to FREEZE_PENDING on disk (ADR-0002:
             # the conductor produces a freezable artifact and no further -- it
@@ -217,6 +223,34 @@ class HarnessDriver:
             self._persist_freeze_pending(artifact_type, response.content)
             return LifecycleResult.CONVERGED
         return LifecycleResult.ESCALATION_NEEDED
+
+    def _persist_verdicts(
+        self, artifact_type: str, state: ConvergenceState
+    ) -> None:
+        """Append the run's verdicts to ``.aieos/verdicts.jsonl`` (FR-014 / G-10).
+
+        One JSON object per line, utf-8, append-only. Each record is a ledger
+        entry (verdict + provenance: validator prompt sha, provider, model,
+        temperature) stamped with the artifact type and a UTC timestamp. This
+        is the raw material calibration reads instead of reconstructs, and it
+        is why an escalation now carries its blocking reasons on disk.
+
+        Ephemeral runtime record, so the ``.aieos/`` sidecar is the right
+        home -- the same placement rule as the FR-019 lock, and deliberately
+        NOT a governed artifact. The public ``LifecycleResult`` contract is
+        unchanged; the dark factory's seam does not notice this.
+        """
+        path = self._initiative / ".aieos" / "verdicts.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        with path.open("a", encoding="utf-8", newline="\n") as f:
+            for entry in state.ledger:
+                record = {
+                    "artifact_type": artifact_type,
+                    "timestamp": timestamp,
+                    **entry,
+                }
+                f.write(json.dumps(record) + "\n")
 
     def _artifact_id(self, artifact_type: str) -> str:
         slug = self._initiative.name.upper().replace(" ", "-") or "INIT"
@@ -301,7 +335,9 @@ class HarnessDriver:
         loop = ConvergenceLoop(
             self._gen, self._val, max_iterations=self._max_iterations
         )
-        _response, result, _state = loop.run(gen_request, val_request)
+        _response, result, state = loop.run(gen_request, val_request)
+        # FR-014 / G-10: verdicts survive the run (see _persist_verdicts).
+        self._persist_verdicts(gen_request.artifact_type, state)
         return (
             LifecycleResult.CONVERGED
             if result.status == "PASS"

@@ -73,6 +73,11 @@ class AgentRequest:
     # by src.inputs.resolve_declared_inputs -- principles files (framework)
     # and the entry brief (human), keyed "<role>: <ref>".
     declared_inputs: dict[str, str] = field(default_factory=dict)
+    # FR-014 slice 1: sampling temperature. None = provider default. The
+    # ConvergenceLoop pins judge calls (validation, lens) to 0.0 -- a gate
+    # that flips run-to-run cannot gate promotion (G-9). Generation stays
+    # None on purpose; pinning the generator was never ratified.
+    temperature: Optional[float] = None
 
 
 @dataclass
