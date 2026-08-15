@@ -551,6 +551,193 @@ def cmd_freeze(args: argparse.Namespace, config: HarnessConfig) -> int:
     return 0
 
 
+def _find_validator_prompt_file(
+    aieos_root: Path, validator: str, artifact_type: str = ""
+) -> Optional[Path]:
+    """Locate a validator's prompt file under the kits.
+
+    Tries ``docs/validators/<validator>.md`` (the validator identity gold
+    cases carry, e.g. ``sad-validator``), then the artifact-type spelling the
+    other subcommands use (``<type>-validator.md``).
+    """
+    names = [f"{validator}.md"]
+    if artifact_type:
+        candidate = f"{artifact_type.lower()}-validator.md"
+        if candidate not in names:
+            names.append(candidate)
+    if not aieos_root.is_dir():
+        return None
+    for kit_dir in sorted(aieos_root.iterdir()):
+        if not kit_dir.is_dir() or not kit_dir.name.startswith("aieos-"):
+            continue
+        for name in names:
+            vp = kit_dir / "docs" / "validators" / name
+            if vp.exists():
+                return vp
+    return None
+
+
+def _resolve_judge_model(config: HarnessConfig) -> str:
+    """The configured judge model: the validate-role provider's model, else
+    the first enabled provider's."""
+    provider = config.roles.validate
+    if provider and provider in config.providers:
+        return config.providers[provider].model
+    for pconf in config.providers.values():
+        if pconf.enabled:
+            return pconf.model
+    return ""
+
+
+def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
+    """Calibrate an LLM judge against its gold set (FR-014 slice 2).
+
+    Machine-readable stdout + distinct exit codes (the ``freeze`` contract
+    style): 0 = calibration PASS (or ``--check-only`` lock fresh);
+    1 = calibration FAIL (report written, no lock); 2 = load or usage error;
+    3 = below the activation floor (refused, nothing written); 4 = stale
+    lock (``--check-only``).
+
+    ``--check-only`` performs ONLY the deterministic lock comparison — no
+    adapter is built and no LLM is reachable from that path. That is the
+    kit-ci / conductor call, exposed for shell callers.
+    """
+    import hashlib
+    from dataclasses import asdict as _asdict
+
+    from src.calibration import (
+        CalibrationError,
+        check_lock,
+        load_gold_set,
+        run_calibration,
+        score,
+        write_lock,
+        write_report,
+    )
+
+    lock_path = Path(args.lock).resolve()
+
+    if args.check_only:
+        if not args.validator:
+            print(
+                json.dumps({"error": "bad_request", "message": "--check-only requires --validator"}),
+                file=sys.stderr,
+            )
+            return 2
+        prompt_sha = args.prompt_sha
+        if not prompt_sha:
+            vp = _find_validator_prompt_file(
+                Path(config.aieos_root).resolve(), args.validator
+            )
+            if vp is not None:
+                prompt_sha = hashlib.sha256(
+                    vp.read_text(encoding="utf-8").encode("utf-8")
+                ).hexdigest()
+        model = args.model or _resolve_judge_model(config)
+        if not prompt_sha or not model:
+            print(
+                json.dumps({
+                    "error": "bad_request",
+                    "message": "--check-only needs --prompt-sha and --model (or a resolvable validator prompt + configured judge)",
+                }),
+                file=sys.stderr,
+            )
+            return 2
+        result = check_lock(prompt_sha, model, lock_path, validator=args.validator)
+        print(json.dumps(_asdict(result)))
+        return 0 if result.fresh else 4
+
+    if not args.gold_dir:
+        print(
+            json.dumps({"error": "bad_request", "message": "--gold-dir is required (unless --check-only)"}),
+            file=sys.stderr,
+        )
+        return 2
+
+    try:
+        cases = load_gold_set(Path(args.gold_dir).resolve())
+    except CalibrationError as exc:
+        print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
+        return 3 if exc.code == "below_floor" else 2
+
+    validator = args.validator or cases[0].validator
+    mismatched = sorted(c.case_id for c in cases if c.validator != validator)
+    if mismatched:
+        print(
+            json.dumps({
+                "error": "mixed_validators",
+                "message": f"Gold cases for a different validator than {validator!r}: {mismatched}",
+            }),
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.validator_prompt:
+        prompt_path = Path(args.validator_prompt).resolve()
+        if not prompt_path.is_file():
+            print(
+                json.dumps({"error": "bad_request", "message": f"Validator prompt not found: {prompt_path}"}),
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        prompt_path = _find_validator_prompt_file(
+            Path(config.aieos_root).resolve(), validator, cases[0].artifact_type
+        )
+        if prompt_path is None:
+            print(
+                json.dumps({
+                    "error": "bad_request",
+                    "message": f"No validator prompt found for {validator!r} under the kits; pass --validator-prompt",
+                }),
+                file=sys.stderr,
+            )
+            return 2
+    validator_prompt = prompt_path.read_text(encoding="utf-8")
+
+    adapters = _build_adapters(config)
+    if not adapters:
+        print(
+            json.dumps({"error": "no_providers", "message": "No providers enabled in config"}),
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        _, judge = _select_role_adapters(config, adapters)
+    except ValueError as exc:
+        print(json.dumps({"error": "bad_roles", "message": str(exc)}), file=sys.stderr)
+        return 2
+
+    try:
+        runs = run_calibration(cases, judge, validator_prompt=validator_prompt)
+        report = score(runs, args.role)
+    except CalibrationError as exc:
+        print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
+        return 2
+
+    if args.report_out:
+        report_out = Path(args.report_out).resolve()
+    else:
+        # Schema path convention: tests/gold/<type>/reports/<validator>-<date>.json
+        report_out = (
+            Path(args.gold_dir).resolve()
+            / "reports"
+            / f"{validator}-{report.run_date[:10]}.json"
+        )
+    write_report(report, report_out)
+
+    payload = _asdict(report)
+    payload["report_path"] = str(report_out)
+    if report.verdict == "PASS":
+        write_lock(report, lock_path, report_ref=str(report_out))
+        payload["lock_path"] = str(lock_path)
+        print(json.dumps(payload))
+        return 0
+    # FAIL: the report is the evidence; the lock is untouched.
+    print(json.dumps(payload))
+    return 1
+
+
 def _select_role_adapters(config: HarnessConfig, adapters: dict) -> tuple:
     """Pick the generate and validate adapters (G-8).
 
@@ -756,6 +943,49 @@ def main(argv: list[str] | None = None) -> int:
     ms.add_argument("--artifact", required=True, help="Artifact ID")
     ms.add_argument("--status", required=True, help="HALTED or FAULTED")
 
+    # calibrate (FR-014 slice 2 — judge calibration + lock staleness check)
+    cal = subparsers.add_parser(
+        "calibrate",
+        help="Calibrate an LLM judge against its gold set (FR-014 slice 2)",
+    )
+    cal.add_argument(
+        "--gold-dir",
+        help="Directory of gold case YAML files (required unless --check-only)",
+    )
+    cal.add_argument("--validator", help="Validator identity, e.g. sad-validator")
+    cal.add_argument(
+        "--validator-prompt",
+        help="Path to the validator prompt file (default: resolved from the kits)",
+    )
+    cal.add_argument(
+        "--report-out",
+        help="Report JSON path (default: <gold-dir>/reports/<validator>-<date>.json)",
+    )
+    cal.add_argument(
+        "--lock",
+        default="./calibration.lock",
+        help="calibration.lock path (default: ./calibration.lock)",
+    )
+    cal.add_argument(
+        "--role",
+        choices=["freeze-gate", "advisory"],
+        default="freeze-gate",
+        help="Threshold row to apply (default: freeze-gate, the strict one)",
+    )
+    cal.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Only run the deterministic lock staleness check (no LLM calls)",
+    )
+    cal.add_argument(
+        "--prompt-sha",
+        help="Live validator prompt sha256 for --check-only (default: hash the kit prompt)",
+    )
+    cal.add_argument(
+        "--model",
+        help="Configured judge model for --check-only (default: from config roles)",
+    )
+
     subparsers.add_parser("health", help="Check provider health")
 
     # costs
@@ -805,6 +1035,7 @@ def main(argv: list[str] | None = None) -> int:
         "validate": cmd_validate,
         "lifecycle": cmd_lifecycle,
         "freeze": cmd_freeze,
+        "calibrate": cmd_calibrate,
         "mark-status": cmd_mark_status,
         "run-artifact": cmd_run_artifact,
         "read-state": cmd_read_state,
