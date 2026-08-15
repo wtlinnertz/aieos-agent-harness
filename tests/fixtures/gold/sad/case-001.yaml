@@ -1,0 +1,13 @@
+# Synthetic gold case (FR-014 slice 2 tests) — schema: aieos-schema/schema/gold-case.yaml
+case_id: case-001
+artifact_type: SAD
+validator: sad-validator
+input_path: inputs/case-001.md
+input_sha256: ede97adfdb826723bc810a3ebb424f5010d9ad34c059fc3c39136ed408c0b31d
+expected_gates:
+  completeness: PASS
+  spec-exemption-honored: PASS
+spec_exemption_case: false
+labeled_by: Todd Linnertz
+labeled_date: 2026-08-14
+source: synthetic fixture (FR-014 slice 2 tests)
