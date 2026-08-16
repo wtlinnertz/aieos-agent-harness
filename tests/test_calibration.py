@@ -909,6 +909,12 @@ def _prompt_file(tmp_path):
     return vp
 
 
+def _spec_file(tmp_path):
+    sp = tmp_path / "spec.md"
+    sp.write_bytes(b"# Spec\n\nGate definitions and exemptions live here.\n")
+    return sp
+
+
 class TestCalibrateCli:
     def test_gold_dir_required_unless_check_only(self, tmp_path, capsys):
         rc = main(["--config", "nope.yaml", "calibrate", "--lock", str(tmp_path / "l")])
@@ -959,6 +965,7 @@ class TestCalibrateCli:
                 "--config", str(cfg), "calibrate",
                 "--gold-dir", str(gold),
                 "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(_spec_file(tmp_path)),
                 "--report-out", str(report_out),
                 "--lock", str(lock),
             ]
@@ -987,6 +994,7 @@ class TestCalibrateCli:
                 "--config", "nope.yaml", "calibrate",
                 "--gold-dir", str(gold),
                 "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(_spec_file(tmp_path)),
                 "--lock", str(lock),
             ]
         )
@@ -1103,3 +1111,62 @@ class TestCalibrateCli:
         )
         assert rc == 2
         assert json.loads(capsys.readouterr().err)["error"] == "bad_request"
+
+
+class TestCalibrateSpecContext:
+    """The judge must receive the spec it enforces (slice-3 defect guard).
+
+    The exemption text that decides the spec-exemption gold cases lives in
+    the spec; a calibration run without it measures a different judge than
+    the one gating freezes.
+    """
+
+    def test_judge_receives_the_spec(self, tmp_path, capsys, monkeypatch):
+        import src.cli as cli_mod
+
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        judge = ScriptedJudgeAdapter(
+            default_gates={"g1": "PASS"},
+            script={"fail-000": [{"g1": "FAIL"}] * 3},
+        )
+        monkeypatch.setattr(cli_mod, "_build_adapters", lambda config: {"scripted": judge})
+        spec = _spec_file(tmp_path)
+        rc = main(
+            [
+                "--config", "nope.yaml", "calibrate",
+                "--gold-dir", str(gold),
+                "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(spec),
+                "--lock", str(tmp_path / "calibration.lock"),
+            ]
+        )
+        assert rc == 0
+        spec_text = spec.read_text(encoding="utf-8")
+        assert judge.calls, "judge was never invoked"
+        assert all(r.spec_content == spec_text for r in judge.calls)
+
+    def test_unresolvable_spec_refuses_exit_2(self, tmp_path, capsys, monkeypatch):
+        # Pin aieos_root to an empty dir so kit resolution cannot succeed by
+        # accident on a machine with sibling kit checkouts, and clear the env
+        # override so the test is hermetic everywhere.
+        monkeypatch.delenv("AIEOS_ROOT", raising=False)
+        nokits = tmp_path / "nokits"
+        nokits.mkdir()
+        cfg = tmp_path / "harness.yaml"
+        cfg.write_bytes(f"aieos_root: {nokits.as_posix()}\n".encode("utf-8"))
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        rc = main(
+            [
+                "--config", str(cfg), "calibrate",
+                "--gold-dir", str(gold),
+                "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--lock", str(tmp_path / "calibration.lock"),
+            ]
+        )
+        assert rc == 2
+        err = json.loads(capsys.readouterr().err)
+        assert err["error"] == "bad_request"
+        assert "spec" in err["message"].lower()
+        assert not (tmp_path / "calibration.lock").exists()

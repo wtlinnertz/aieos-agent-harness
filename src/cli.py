@@ -577,6 +577,27 @@ def _find_validator_prompt_file(
     return None
 
 
+def _find_kit_artifact_file(
+    aieos_root: Path, artifact_type: str, subdir: str, suffix: str
+) -> Optional[Path]:
+    """Locate a kit doc for an artifact type: ``docs/<subdir>/<type>-<suffix>.md``.
+
+    Walks the kits exactly the way :func:`_find_validator_prompt_file` does.
+    Used by ``calibrate`` to resolve the spec (``specs``/``spec``) and the
+    template (``artifacts``/``template``) for validation-context parity.
+    """
+    if not artifact_type or not aieos_root.is_dir():
+        return None
+    name = f"{artifact_type.lower()}-{suffix}.md"
+    for kit_dir in sorted(aieos_root.iterdir()):
+        if not kit_dir.is_dir() or not kit_dir.name.startswith("aieos-"):
+            continue
+        candidate = kit_dir / "docs" / subdir / name
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _resolve_judge_model(config: HarnessConfig) -> str:
     """The configured judge model: the validate-role provider's model, else
     the first enabled provider's."""
@@ -695,6 +716,54 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
             return 2
     validator_prompt = prompt_path.read_text(encoding="utf-8")
 
+    # The judge must receive the spec it enforces: the gate definitions and
+    # exemptions live there, and real validation requests carry it. A
+    # calibration run without the spec measures a different judge than the
+    # one gating freezes -- the spec-exemption gold cases are meaningless
+    # without the exemption text in context.
+    if args.spec_file:
+        spec_path = Path(args.spec_file).resolve()
+        if not spec_path.is_file():
+            print(
+                json.dumps({"error": "bad_request", "message": f"Spec file not found: {spec_path}"}),
+                file=sys.stderr,
+            )
+            return 2
+    else:
+        spec_path = _find_kit_artifact_file(
+            Path(config.aieos_root).resolve(), cases[0].artifact_type, "specs", "spec"
+        )
+        if spec_path is None:
+            print(
+                json.dumps({
+                    "error": "bad_request",
+                    "message": (
+                        f"No spec found for {cases[0].artifact_type!r} under the kits; "
+                        "the judge must receive the spec it enforces -- pass --spec-file"
+                    ),
+                }),
+                file=sys.stderr,
+            )
+            return 2
+    spec_content = spec_path.read_text(encoding="utf-8")
+
+    template_content = ""
+    if args.template_file:
+        template_path = Path(args.template_file).resolve()
+        if not template_path.is_file():
+            print(
+                json.dumps({"error": "bad_request", "message": f"Template file not found: {template_path}"}),
+                file=sys.stderr,
+            )
+            return 2
+        template_content = template_path.read_text(encoding="utf-8")
+    else:
+        template_path = _find_kit_artifact_file(
+            Path(config.aieos_root).resolve(), cases[0].artifact_type, "artifacts", "template"
+        )
+        if template_path is not None:
+            template_content = template_path.read_text(encoding="utf-8")
+
     adapters = _build_adapters(config)
     if not adapters:
         print(
@@ -709,7 +778,13 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
         return 2
 
     try:
-        runs = run_calibration(cases, judge, validator_prompt=validator_prompt)
+        runs = run_calibration(
+            cases,
+            judge,
+            validator_prompt=validator_prompt,
+            spec_content=spec_content,
+            template_content=template_content,
+        )
         report = score(runs, args.role)
     except CalibrationError as exc:
         print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
@@ -956,6 +1031,21 @@ def main(argv: list[str] | None = None) -> int:
     cal.add_argument(
         "--validator-prompt",
         help="Path to the validator prompt file (default: resolved from the kits)",
+    )
+    cal.add_argument(
+        "--spec-file",
+        help=(
+            "Path to the artifact spec the judge enforces "
+            "(default: docs/specs/<type>-spec.md resolved from the kits; "
+            "calibration refuses to run without a spec)"
+        ),
+    )
+    cal.add_argument(
+        "--template-file",
+        help=(
+            "Path to the artifact template for validation-context parity "
+            "(default: docs/artifacts/<type>-template.md from the kits; optional)"
+        ),
     )
     cal.add_argument(
         "--report-out",
