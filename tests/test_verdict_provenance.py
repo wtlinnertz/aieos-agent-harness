@@ -408,3 +408,100 @@ class TestAdaptersHonorTemperature:
         adapter._client = fake
         adapter.invoke(self._request(None))
         assert "temperature" not in fake.calls[0]
+
+
+class TestAnthropicTemperatureDeprecatedFallback:
+    """claude-sonnet-5 and later reject the temperature parameter (400,
+    "`temperature` is deprecated for this model" — hit live 2026-08-16).
+    The adapter retries once without it. The FR-014 stability gate never
+    trusted the pin — it measures flips across 3 identical runs — so the
+    fallback preserves the design: pin when the model allows, measure
+    regardless.
+    """
+
+    class _RejectingClient:
+        class _Block:
+            text = "ok"
+
+        class _Usage:
+            input_tokens = 10
+            output_tokens = 20
+
+        class _Response:
+            def __init__(self):
+                outer = TestAnthropicTemperatureDeprecatedFallback._RejectingClient
+                self.content = [outer._Block()]
+                self.usage = outer._Usage()
+                self.id = "fake-id"
+                self.stop_reason = "end_turn"
+
+        def __init__(self):
+            self.calls: list[dict] = []
+            outer = self
+
+            class BadRequestError(Exception):
+                """Name must match anthropic.BadRequestError for the check."""
+
+            self._error_cls = BadRequestError
+
+            class _Messages:
+                def create(self, **kwargs):
+                    outer.calls.append(kwargs)
+                    if "temperature" in kwargs:
+                        raise outer._error_cls(
+                            "Error code: 400 - `temperature` is deprecated for this model."
+                        )
+                    return outer._Response()
+
+            self.messages = _Messages()
+
+    def _request(self, temperature):
+        return AgentRequest(
+            artifact_type="SAD",
+            event=LifecycleEvent.PRE_VALIDATION,
+            spec_content="s",
+            template_content="t",
+            prompt_content="p",
+            upstream_artifacts={},
+            current_artifact="a",
+            correction_constraints=[],
+            metadata={},
+            temperature=temperature,
+        )
+
+    def test_retries_without_temperature_on_deprecation_400(self):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        adapter = AnthropicAdapter(api_key="test")
+        fake = self._RejectingClient()
+        adapter._client = fake
+        response = adapter.invoke(self._request(0.0))
+        assert len(fake.calls) == 2, "expected pinned attempt + one retry"
+        assert fake.calls[0]["temperature"] == 0.0
+        assert "temperature" not in fake.calls[1]
+        assert response.content == "ok"
+
+    def test_unpinned_request_never_retries(self):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        adapter = AnthropicAdapter(api_key="test")
+        fake = self._RejectingClient()
+        adapter._client = fake
+        adapter.invoke(self._request(None))
+        assert len(fake.calls) == 1
+
+    def test_other_errors_still_raise(self):
+        import pytest
+
+        from src.adapters.anthropic import AnthropicAdapter
+
+        adapter = AnthropicAdapter(api_key="test")
+        fake = self._RejectingClient()
+        adapter._client = fake
+
+        def _boom(**kwargs):
+            raise RuntimeError("nope")
+
+        fake.messages.create = _boom
+        with pytest.raises(RuntimeError):
+            adapter.invoke(self._request(0.0))
