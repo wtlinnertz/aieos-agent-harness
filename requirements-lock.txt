@@ -4,7 +4,7 @@
 # Note: hashes should be added when pip-tools is available.
 pyyaml==6.0.2
 pytest==8.3.5
-anthropic==0.40.0
+anthropic==0.122.0
 openai==1.50.0
 # M2 CI/CD capability substrate — added to match requirements.txt (were missing,
 # which broke tests/cicd/* imports). Pins satisfy the requirements.txt ranges.

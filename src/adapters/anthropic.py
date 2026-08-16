@@ -132,13 +132,43 @@ class AnthropicAdapter:
             extra["temperature"] = request.temperature
 
         start = time.monotonic()
-        response = client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system_message,
-            messages=[{"role": "user", "content": user_message}],
-            **extra,
-        )
+        try:
+            response = client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=system_message,
+                messages=[{"role": "user", "content": user_message}],
+                **extra,
+            )
+        except Exception as exc:
+            # Newer models (claude-sonnet-5 and later) reject the temperature
+            # parameter outright ("`temperature` is deprecated for this
+            # model", 400). The pin is best-effort: retry once without it.
+            # Determinism then rests on the model's default behavior, which
+            # the FR-014 calibration stability gate measures EMPIRICALLY
+            # (3 identical runs) rather than assumes -- the pin was never
+            # the guarantee, the measurement is.
+            if (
+                "temperature" in extra
+                and type(exc).__name__ == "BadRequestError"
+                and "temperature" in str(exc)
+            ):
+                logger.warning(
+                    "model %s rejects the temperature parameter; retrying "
+                    "without it (determinism unpinned, measured empirically "
+                    "by calibration)",
+                    self._model,
+                )
+                extra.pop("temperature")
+                response = client.messages.create(
+                    model=self._model,
+                    max_tokens=self._max_tokens,
+                    system=system_message,
+                    messages=[{"role": "user", "content": user_message}],
+                    **extra,
+                )
+            else:
+                raise
         latency_ms = (time.monotonic() - start) * 1000
 
         # Extract content text
