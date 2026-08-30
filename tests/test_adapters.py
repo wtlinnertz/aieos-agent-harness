@@ -161,3 +161,83 @@ class TestMockAdapterCallHistory:
         assert len(adapter.call_history) == 3
         methods = [call[0] for call in adapter.call_history]
         assert methods == ["invoke", "health", "cost_estimate"]
+
+
+class TestAnthropicWorkspaceId:
+    """The workspace an identity-linked key acts in.
+
+    An identity-linked API key is not scoped to a workspace, so the API
+    refuses every request until the caller names one. The SDK has no
+    workspace parameter, so it travels as a default header. A plain
+    workspace-scoped key needs no header, so unset must stay unset rather
+    than send an empty one.
+    """
+
+    @staticmethod
+    def _capture(monkeypatch):
+        """Patch anthropic.Anthropic and record its kwargs."""
+        import anthropic
+
+        seen: dict = {}
+
+        def _fake(**kwargs):
+            seen.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(anthropic, "Anthropic", _fake)
+        return seen
+
+    def test_header_sent_when_workspace_configured(self, monkeypatch):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        seen = self._capture(monkeypatch)
+        AnthropicAdapter(api_key="k", workspace_id="wrk-123")._get_client()
+        assert seen["default_headers"] == {"anthropic-workspace-id": "wrk-123"}
+
+    def test_no_header_when_unset(self, monkeypatch):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+        seen = self._capture(monkeypatch)
+        AnthropicAdapter(api_key="k")._get_client()
+        assert seen["default_headers"] is None
+
+    def test_env_fallback(self, monkeypatch):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrk-from-env")
+        seen = self._capture(monkeypatch)
+        AnthropicAdapter(api_key="k")._get_client()
+        assert seen["default_headers"] == {"anthropic-workspace-id": "wrk-from-env"}
+
+    def test_explicit_config_beats_env(self, monkeypatch):
+        from src.adapters.anthropic import AnthropicAdapter
+
+        monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrk-from-env")
+        seen = self._capture(monkeypatch)
+        AnthropicAdapter(api_key="k", workspace_id="wrk-explicit")._get_client()
+        assert seen["default_headers"] == {"anthropic-workspace-id": "wrk-explicit"}
+
+    def test_empty_config_falls_back_to_env(self, monkeypatch):
+        # _build_adapters always passes pconf.workspace_id, which defaults to
+        # "" -- so "" must mean "unset", not "override the environment".
+        from src.adapters.anthropic import AnthropicAdapter
+
+        monkeypatch.setenv("ANTHROPIC_WORKSPACE_ID", "wrk-from-env")
+        seen = self._capture(monkeypatch)
+        AnthropicAdapter(api_key="k", workspace_id="")._get_client()
+        assert seen["default_headers"] == {"anthropic-workspace-id": "wrk-from-env"}
+
+    def test_cli_passes_workspace_id_from_config(self, monkeypatch):
+        from src.cli import _build_adapters
+        from src.config import HarnessConfig, ProviderConfig
+
+        monkeypatch.delenv("ANTHROPIC_WORKSPACE_ID", raising=False)
+        cfg = HarnessConfig()
+        cfg.providers = {
+            "anthropic": ProviderConfig(
+                enabled=True, model="m", workspace_id="wrk-cfg"
+            )
+        }
+        adapters = _build_adapters(cfg)
+        assert adapters["anthropic"]._workspace_id == "wrk-cfg"

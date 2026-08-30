@@ -12,9 +12,21 @@ from src.models import AgentSpecies
 
 @dataclass
 class ProviderConfig:
+    """One provider's settings.
+
+    ``workspace_id`` is optional and provider-interpreted. Anthropic
+    identity-linked API keys are not scoped to a workspace by themselves --
+    the API refuses the request ("anthropic-workspace-id is required when
+    authenticating with an identity-linked API key") until the caller names
+    the workspace it acts in. It is an ID, not a secret, but it is still
+    account-shaped, so the adapter falls back to ``ANTHROPIC_WORKSPACE_ID``
+    from the environment and nothing forces it into a config file.
+    """
+
     enabled: bool = False
     model: str = ""
     max_tokens: int = 8192
+    workspace_id: str = ""
 
 
 @dataclass
@@ -79,6 +91,7 @@ def load_config(path: Path) -> HarnessConfig:
                 enabled=pdata.get("enabled", False),
                 model=pdata.get("model", ""),
                 max_tokens=pdata.get("max_tokens", 8192),
+                workspace_id=str(pdata.get("workspace_id", "") or ""),
             )
 
     # -- Build routing config --

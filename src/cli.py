@@ -31,7 +31,9 @@ def _build_adapters(config: HarnessConfig) -> dict[str, object]:
             from src.adapters.anthropic import AnthropicAdapter
 
             adapters[name] = AnthropicAdapter(
-                model=pconf.model, max_tokens=pconf.max_tokens
+                model=pconf.model,
+                max_tokens=pconf.max_tokens,
+                workspace_id=pconf.workspace_id,
             )
         elif name == "openai":
             from src.adapters.openai import OpenAIAdapter
@@ -634,6 +636,7 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
         score,
         write_lock,
         write_report,
+        write_runs,
     )
 
     lock_path = Path(args.lock).resolve()
@@ -785,6 +788,17 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
             spec_content=spec_content,
             template_content=template_content,
         )
+    except CalibrationError as exc:
+        print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
+        return 2
+
+    # Persist the raw runs BEFORE scoring. These cost real provider calls;
+    # a scoring failure must not throw them away and force a re-purchase.
+    runs_out = None
+    if args.runs_out:
+        runs_out = write_runs(runs, Path(args.runs_out).resolve())
+
+    try:
         report = score(runs, args.role)
     except CalibrationError as exc:
         print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
@@ -803,6 +817,8 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
 
     payload = _asdict(report)
     payload["report_path"] = str(report_out)
+    if runs_out is not None:
+        payload["runs_path"] = str(runs_out)
     if report.verdict == "PASS":
         write_lock(report, lock_path, report_ref=str(report_out))
         payload["lock_path"] = str(lock_path)
@@ -1050,6 +1066,14 @@ def main(argv: list[str] | None = None) -> int:
     cal.add_argument(
         "--report-out",
         help="Report JSON path (default: <gold-dir>/reports/<validator>-<date>.json)",
+    )
+    cal.add_argument(
+        "--runs-out",
+        help=(
+            "Optional path for the raw per-case, per-run judge output "
+            "(verdicts + the judge's own blocking issues). Dispute-analysis "
+            "evidence; nothing reads it programmatically. Off by default"
+        ),
     )
     cal.add_argument(
         "--lock",

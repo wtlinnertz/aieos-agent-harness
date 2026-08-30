@@ -50,6 +50,7 @@ from src.calibration import (
     score,
     write_lock,
     write_report,
+    write_runs,
 )
 from src.models import AgentRequest, AgentResponse, HealthStatus, LifecycleEvent
 
@@ -1170,3 +1171,214 @@ class TestCalibrateSpecContext:
         assert err["error"] == "bad_request"
         assert "spec" in err["message"].lower()
         assert not (tmp_path / "calibration.lock").exists()
+
+
+# ---------------------------------------------------------------------------
+# Run evidence (dispute analysis input)
+# ---------------------------------------------------------------------------
+
+
+class TestRunEvidence:
+    """The judge's own reasons survive the run.
+
+    A gate disagreement without a reason cannot be disputed -- it can only be
+    re-purchased. These tests pin that the reasons the validator prompt
+    ALREADY asks for reach disk, and that carrying them changes neither the
+    judge identity nor the verdict.
+    """
+
+    def test_run_evidence_is_index_aligned_with_gate_verdicts(self, tmp_path):
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"})
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+
+        for case_runs in runs.case_runs:
+            assert len(case_runs.run_evidence) == RUNS_PER_CASE
+            assert len(case_runs.run_evidence) == len(case_runs.gate_verdicts)
+            for i, ev in enumerate(case_runs.run_evidence):
+                assert ev["run"] == i + 1
+                assert case_runs.case.case_id in ev["summary"]
+
+    def test_failing_gate_carries_the_judges_blocking_issue(self, tmp_path):
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(
+            default_gates={"g1": "PASS"},
+            script={"fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE},
+        )
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+
+        failing = next(c for c in runs.case_runs if c.case.case_id == "fail-000")
+        for ev in failing.run_evidence:
+            assert ev["status"] == "FAIL"
+            gates_named = {b["gate"] for b in ev["blocking_issues"]}
+            assert gates_named == {"g1"}
+
+        passing = next(c for c in runs.case_runs if c.case.case_id == "pass-000")
+        for ev in passing.run_evidence:
+            assert ev["blocking_issues"] == []
+
+    def test_capturing_evidence_does_not_change_the_judge_identity(self, tmp_path):
+        # The whole point of reusing blocking_issues instead of asking the
+        # judge for reasons: no prompt change, so prompt_sha256 is stable and
+        # runs stay comparable across this change.
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"})
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert runs.prompt_sha256 == VALIDATOR_SHA
+
+    def test_scoring_ignores_run_evidence(self, tmp_path):
+        # Structural: the verdict is a function of the gate maps alone.
+        # Strip every reason and the score must be byte-identical.
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(
+            default_gates={"g1": "PASS"},
+            script={"fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE},
+        )
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        with_evidence = score(runs, "freeze-gate")
+
+        for case_runs in runs.case_runs:
+            case_runs.run_evidence = []
+        without_evidence = score(runs, "freeze-gate")
+
+        for attr in (
+            "gate_agreement",
+            "false_pass_count",
+            "stability_flips",
+            "kappa",
+            "verdict",
+            "gates",
+        ):
+            assert getattr(with_evidence, attr) == getattr(without_evidence, attr)
+
+    def test_write_runs_shape(self, tmp_path):
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(
+            default_gates={"g1": "PASS"},
+            script={"fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE},
+        )
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        out = write_runs(runs, tmp_path / "nested" / "runs.json")
+
+        assert out.exists()
+        payload = json.loads(out.read_text(encoding="utf-8"))
+        assert payload["runs_version"] == "1.0"
+        assert payload["validator"] == "sad-validator"
+        assert payload["runs_per_case"] == RUNS_PER_CASE
+        assert payload["judge"]["prompt_sha256"] == VALIDATOR_SHA
+        assert payload["judge"]["model"] == "scripted-judge-v1"
+        assert len(payload["cases"]) == len(cases)
+
+        failing = next(c for c in payload["cases"] if c["case_id"] == "fail-000")
+        assert failing["expected_gates"] == {"g1": "FAIL"}
+        assert failing["dispute_ref"] is None
+        assert len(failing["gate_verdicts"]) == RUNS_PER_CASE
+        assert len(failing["run_evidence"]) == RUNS_PER_CASE
+        assert failing["run_evidence"][0]["blocking_issues"][0]["gate"] == "g1"
+
+    def test_write_runs_is_lf_and_utf8(self, tmp_path):
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        cases = load_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"})
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        out = write_runs(runs, tmp_path / "runs.json")
+        assert b"\r\n" not in out.read_bytes()
+
+
+class TestRunsOutCli:
+    def test_runs_out_writes_the_raw_runs(self, tmp_path, capsys, monkeypatch):
+        import src.cli as cli_mod
+
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"}, script={
+            "fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE,
+        })
+        monkeypatch.setattr(
+            cli_mod, "_build_adapters", lambda config: {"scripted": judge}
+        )
+        runs_out = tmp_path / "runs.json"
+        rc = main(
+            [
+                "--config", "nope.yaml", "calibrate",
+                "--gold-dir", str(gold),
+                "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(_spec_file(tmp_path)),
+                "--runs-out", str(runs_out),
+                "--lock", str(tmp_path / "calibration.lock"),
+            ]
+        )
+        assert rc == 0
+        out = json.loads(capsys.readouterr().out)
+        assert out["runs_path"] == str(runs_out.resolve())
+        assert runs_out.exists()
+        payload = json.loads(runs_out.read_text(encoding="utf-8"))
+        assert len(payload["cases"]) == FLOOR_MIN_CASES
+
+    def test_runs_out_is_off_by_default(self, tmp_path, capsys, monkeypatch):
+        import src.cli as cli_mod
+
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"}, script={
+            "fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE,
+        })
+        monkeypatch.setattr(
+            cli_mod, "_build_adapters", lambda config: {"scripted": judge}
+        )
+        rc = main(
+            [
+                "--config", "nope.yaml", "calibrate",
+                "--gold-dir", str(gold),
+                "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(_spec_file(tmp_path)),
+                "--lock", str(tmp_path / "calibration.lock"),
+            ]
+        )
+        assert rc == 0
+        assert "runs_path" not in json.loads(capsys.readouterr().out)
+        assert not list(tmp_path.glob("runs*.json"))
+
+    def test_runs_are_written_even_when_scoring_refuses(
+        self, tmp_path, capsys, monkeypatch
+    ):
+        # The runs cost provider calls. A scoring failure must not discard
+        # them and force a re-purchase -- they are written first.
+        import src.cli as cli_mod
+
+        gold = tmp_path / "gold"
+        build_gold_set(gold)
+        judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"})
+        monkeypatch.setattr(
+            cli_mod, "_build_adapters", lambda config: {"scripted": judge}
+        )
+
+        def _boom(runs, role):
+            raise CalibrationError("bad_gold_set", "scoring refused")
+
+        # cmd_calibrate imports score from src.calibration at call time.
+        monkeypatch.setattr(calibration, "score", _boom)
+        runs_out = tmp_path / "runs.json"
+        rc = main(
+            [
+                "--config", "nope.yaml", "calibrate",
+                "--gold-dir", str(gold),
+                "--validator-prompt", str(_prompt_file(tmp_path)),
+                "--spec-file", str(_spec_file(tmp_path)),
+                "--runs-out", str(runs_out),
+                "--lock", str(tmp_path / "calibration.lock"),
+            ]
+        )
+        assert rc == 2
+        assert runs_out.exists()

@@ -55,10 +55,18 @@ class AnthropicAdapter:
         model: str = "claude-sonnet-4-20250514",
         max_tokens: int = 8192,
         api_key: str | None = None,
+        workspace_id: str | None = None,
     ) -> None:
         self._model = model
         self._max_tokens = max_tokens
         self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        # Identity-linked API keys are not scoped to a workspace, so the API
+        # requires the caller to name one. Config first, then environment,
+        # so the ID never has to be committed. Empty = send no header, which
+        # is correct for a plain workspace-scoped key.
+        self._workspace_id = (workspace_id or "").strip() or os.environ.get(
+            "ANTHROPIC_WORKSPACE_ID", ""
+        ).strip()
         self._client = None  # Lazy init
 
     @property
@@ -78,7 +86,18 @@ class AnthropicAdapter:
                 raise ImportError(
                     "anthropic package required: pip install anthropic"
                 )
-            self._client = anthropic.Anthropic(api_key=self._api_key)
+            # The SDK has no workspace parameter (checked against 0.122.0
+            # and 1.2.0), so the workspace travels as a default header on
+            # every request. No workspace configured = no header, the
+            # pre-existing behaviour for workspace-scoped keys.
+            headers = (
+                {"anthropic-workspace-id": self._workspace_id}
+                if self._workspace_id
+                else None
+            )
+            self._client = anthropic.Anthropic(
+                api_key=self._api_key, default_headers=headers
+            )
         return self._client
 
     @staticmethod
