@@ -31,7 +31,9 @@ def _build_adapters(config: HarnessConfig) -> dict[str, object]:
             from src.adapters.anthropic import AnthropicAdapter
 
             adapters[name] = AnthropicAdapter(
-                model=pconf.model, max_tokens=pconf.max_tokens
+                model=pconf.model,
+                max_tokens=pconf.max_tokens,
+                workspace_id=pconf.workspace_id,
             )
         elif name == "openai":
             from src.adapters.openai import OpenAIAdapter

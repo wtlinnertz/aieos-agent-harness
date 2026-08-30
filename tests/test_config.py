@@ -8,6 +8,29 @@ import pytest
 from src.config import HarnessConfig, ProviderConfig, RoutingConfig, load_config
 
 
+class TestProviderWorkspaceId:
+    def test_workspace_id_parsed_from_yaml(self, tmp_path):
+        cfg_file = tmp_path / "harness.yaml"
+        cfg_file.write_text(
+            "providers:\n"
+            "  anthropic:\n"
+            "    enabled: true\n"
+            "    model: claude-haiku-4-5-20251001\n"
+            "    workspace_id: wrk-abc123\n",
+            encoding="utf-8",
+        )
+        config = load_config(cfg_file)
+        assert config.providers["anthropic"].workspace_id == "wrk-abc123"
+
+    def test_workspace_id_defaults_empty(self, tmp_path):
+        cfg_file = tmp_path / "harness.yaml"
+        cfg_file.write_text(
+            "providers:\n  anthropic:\n    enabled: true\n", encoding="utf-8"
+        )
+        config = load_config(cfg_file)
+        assert config.providers["anthropic"].workspace_id == ""
+
+
 class TestLoadConfigFromYAML:
     def test_full_yaml(self, tmp_path):
         cfg_file = tmp_path / "harness.yaml"
