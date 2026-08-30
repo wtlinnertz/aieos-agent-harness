@@ -132,10 +132,26 @@ class GoldCase:
 
 @dataclass
 class CaseRuns:
-    """The :data:`RUNS_PER_CASE` per-gate verdict maps for one gold case."""
+    """The :data:`RUNS_PER_CASE` per-gate verdict maps for one gold case.
+
+    ``run_evidence`` carries the judge's OWN stated reasoning for each run
+    (``summary`` + ``blocking_issues``), parallel to ``gate_verdicts`` and
+    index-aligned with it. Scoring never reads it: the verdict is a function
+    of the gate maps alone, exactly as before. It exists because a
+    disagreement without a reason cannot be disputed, and dispute analysis
+    is what tells us whether a failing gate means the judge is wrong or the
+    gold label is (the ``dispute_ref`` accretion path on GoldCase).
+
+    The validator prompt already asks for ``blocking_issues`` and
+    :func:`parse_validation_result` already parses them -- this field only
+    stops the engine from discarding them. No prompt change, so
+    ``prompt_sha256`` is unaffected and runs stay comparable across the
+    change.
+    """
 
     case: GoldCase
     gate_verdicts: list[dict[str, str]] = field(default_factory=list)
+    run_evidence: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -382,6 +398,7 @@ def run_calibration(
 
     for case in cases:
         verdicts: list[dict[str, str]] = []
+        evidence: list[dict] = []
         for run_index in range(RUNS_PER_CASE):
             request = AgentRequest(
                 artifact_type=case.artifact_type,
@@ -408,9 +425,19 @@ def run_calibration(
                     f"an unparseable verdict: {exc}",
                 ) from exc
             verdicts.append(dict(result.hard_gates))
+            # The judge's own reasons, kept verbatim. Recorded for dispute
+            # analysis only -- scoring never sees this.
+            evidence.append({
+                "run": run_index + 1,
+                "status": result.status,
+                "summary": result.summary,
+                "blocking_issues": list(result.blocking_issues),
+            })
             provider = response.provider
             model = response.model
-        case_runs.append(CaseRuns(case=case, gate_verdicts=verdicts))
+        case_runs.append(
+            CaseRuns(case=case, gate_verdicts=verdicts, run_evidence=evidence)
+        )
 
     return CalibrationRuns(
         validator=cases[0].validator,
@@ -558,6 +585,51 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
         json.dump(payload, handle, indent=2)
         handle.write("\n")
     os.replace(tmp, path)
+
+
+def write_runs(runs: CalibrationRuns, path: Path) -> Path:
+    """Write the raw per-case, per-run judge output (dispute evidence).
+
+    The calibration report aggregates to gate totals, which is the right
+    contract for a verdict and the wrong one for asking WHY a gate
+    disagreed. This file is the per-run record behind those totals: for
+    every gold case, each run's gate map plus the judge's own summary and
+    blocking issues, stamped with the same judge identity triple.
+
+    Optional and off by default (``--runs-out``). Nothing reads it
+    programmatically -- not CI, not the conductor, not scoring. It exists so
+    a human can answer the only question the aggregate cannot: on a gate the
+    judge and the gold set disagree about, which one is wrong? Without it,
+    the disagreement has to be re-purchased to be examined.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "runs_version": "1.0",
+        "validator": runs.validator,
+        "artifact_type": runs.artifact_type,
+        "judge": {
+            "provider": runs.provider,
+            "model": runs.model,
+            "prompt_sha256": runs.prompt_sha256,
+        },
+        "runs_per_case": RUNS_PER_CASE,
+        "cases": [
+            {
+                "case_id": cr.case.case_id,
+                "expected_gates": dict(cr.case.expected_gates),
+                "spec_exemption_case": cr.case.spec_exemption_case,
+                "labeled_by": cr.case.labeled_by,
+                "labeled_date": cr.case.labeled_date,
+                "dispute_ref": cr.case.dispute_ref,
+                "gate_verdicts": [dict(v) for v in cr.gate_verdicts],
+                "run_evidence": list(cr.run_evidence),
+            }
+            for cr in runs.case_runs
+        ],
+    }
+    _write_json_atomic(path, payload)
+    return path
 
 
 def write_report(report: CalibrationReport, path: Path) -> Path:
