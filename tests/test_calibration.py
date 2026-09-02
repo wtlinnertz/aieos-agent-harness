@@ -29,6 +29,7 @@ import json
 import os
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -424,6 +425,129 @@ class TestRunCalibration:
         with pytest.raises(CalibrationError) as exc:
             run_calibration(cases, GarbageJudge(), validator_prompt=VALIDATOR_PROMPT)
         assert exc.value.code == "bad_judge_output"
+
+
+class TestProviderFailureIsRefusal:
+    """DEF-003 (narrow fix): a provider failure mid-run is a structured
+    refusal, not an unhandled exception.
+
+    Unhandled, it bypasses the CLI's CalibrationError handler, so the run
+    reports a traceback instead of honoring the calibrate exit-code
+    contract. Observed twice against the live API on 2026-08-30 (401, then
+    400), each time after real spend.
+    """
+
+    @staticmethod
+    def _failing_judge(fail_on_call: int, exc: Exception):
+        """A judge that succeeds until ``fail_on_call`` (1-indexed), then raises."""
+
+        class FailingJudge(ScriptedJudgeAdapter):
+            def invoke(self, request):
+                if len(self.calls) + 1 == fail_on_call:
+                    self.calls.append(request)
+                    raise exc
+                return super().invoke(request)
+
+        return FailingJudge()
+
+    def test_provider_error_is_a_structured_refusal(self, tmp_path):
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = self._failing_judge(30, RuntimeError("401 invalid x-api-key"))
+
+        with pytest.raises(CalibrationError) as exc:
+            run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert exc.value.code == "provider_error"
+
+    def test_refusal_names_the_position_and_the_burn(self, tmp_path):
+        # The operator's whole question after a mid-run failure is "how far
+        # did it get, and what did I pay for?" The message answers it.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        assert len(cases) * RUNS_PER_CASE == 36  # the 2026-08-30 run shape
+        judge = self._failing_judge(30, RuntimeError("401 invalid x-api-key"))
+
+        with pytest.raises(CalibrationError) as exc:
+            run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        message = exc.value.message
+        assert "call 30 of 36" in message
+        assert "29 completed call(s) discarded" in message
+        assert "RuntimeError" in message
+        assert "401 invalid x-api-key" in message
+
+    def test_provider_exception_is_chained_not_swallowed(self, tmp_path):
+        # The original traceback stays reachable for debugging; only the
+        # exit-code contract changes.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        original = RuntimeError("400 bad request")
+        judge = self._failing_judge(1, original)
+
+        with pytest.raises(CalibrationError) as exc:
+            run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert exc.value.__cause__ is original
+
+    def test_failure_on_the_very_first_call_reports_zero_burn(self, tmp_path):
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = self._failing_judge(1, RuntimeError("connection reset"))
+
+        with pytest.raises(CalibrationError) as exc:
+            run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert "call 1 of 36" in exc.value.message
+        assert "0 completed call(s) discarded" in exc.value.message
+
+    def test_keyboard_interrupt_still_propagates(self, tmp_path):
+        # Ctrl-C is not a provider error. Catching it here would make a
+        # long paid run un-interruptible.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = self._failing_judge(5, KeyboardInterrupt())
+
+        with pytest.raises(KeyboardInterrupt):
+            run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+
+    def test_cli_returns_exit_2_not_a_traceback(self, tmp_path, monkeypatch, capsys):
+        # The end-to-end contract DEF-003 broke: `calibrate` must honor its
+        # exit codes (0/1/2/3) when the provider dies mid-run. Everything
+        # here is real except the adapter build -- the judge below fails the
+        # way the live API did on 2026-08-30.
+        import src.cli as cli
+        from src.config import HarnessConfig
+
+        gold_dir = tmp_path / "gold"
+        gold_dir.mkdir()
+        build_gold_set(gold_dir)
+
+        prompt_file = tmp_path / "validator-prompt.md"
+        prompt_file.write_text(VALIDATOR_PROMPT, encoding="utf-8")
+        spec_file = tmp_path / "spec.md"
+        spec_file.write_text("sad spec v1", encoding="utf-8")
+
+        judge = self._failing_judge(30, RuntimeError("401 invalid x-api-key"))
+        monkeypatch.setattr(cli, "_build_adapters", lambda config: {"scripted": judge})
+
+        args = SimpleNamespace(
+            lock=str(tmp_path / "calibration.lock.yaml"),
+            check_only=False,
+            gold_dir=str(gold_dir),
+            validator=None,
+            prompt_sha=None,
+            model=None,
+            validator_prompt=str(prompt_file),
+            spec_file=str(spec_file),
+            template_file=None,
+            role="freeze-gate",
+            runs_out=None,
+            report_out=None,
+        )
+
+        exit_code = cli.cmd_calibrate(args, HarnessConfig(aieos_root=str(tmp_path)))
+
+        assert exit_code == 2
+        payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+        assert payload["error"] == "provider_error"
+        assert "call 30 of 36" in payload["message"]
 
 
 # ---------------------------------------------------------------------------
