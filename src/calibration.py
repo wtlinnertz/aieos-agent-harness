@@ -395,6 +395,8 @@ def run_calibration(
     provider = ""
     model = ""
     case_runs: list[CaseRuns] = []
+    total_calls = len(cases) * RUNS_PER_CASE
+    calls_made = 0
 
     for case in cases:
         verdicts: list[dict[str, str]] = []
@@ -415,7 +417,30 @@ def run_calibration(
                 },
                 temperature=0.0,
             )
-            response = judge.invoke(request)
+            # DEF-003 (narrow fix): a provider failure -- expired key, 401,
+            # 400, transport error -- must not escape as an unhandled
+            # exception. Unhandled, it skips the CLI's CalibrationError
+            # handler entirely, so the run neither writes evidence nor
+            # honors the calibrate exit-code contract (0/1/2/3): a failure
+            # at call 30 of 36 burns the spend and reports a traceback.
+            # Refusing here routes it to exit 2 like every other refusal.
+            #
+            # This stops the burn; it does not save the completed calls.
+            # Those are still discarded, because run_calibration returns
+            # nothing until every case finishes. The real fix is
+            # incremental per-case writes -- see DEF-003 in the roadmap.
+            try:
+                response = judge.invoke(request)
+            except Exception as exc:
+                raise CalibrationError(
+                    "provider_error",
+                    f"Case {case.case_id} run {run_index + 1} "
+                    f"(call {calls_made + 1} of {total_calls}): provider call "
+                    f"failed: {type(exc).__name__}: {exc}. "
+                    f"{calls_made} completed call(s) discarded -- no evidence "
+                    f"written.",
+                ) from exc
+            calls_made += 1
             try:
                 result = parse_validation_result(response)
             except ValueError as exc:
