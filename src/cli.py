@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Optional
@@ -117,6 +118,81 @@ def _collect_upstream_artifacts(initiative_path: Path) -> dict[str, str]:
             status = status_match.group(1).strip().upper()
             if status == "FROZEN":
                 artifacts[artifact_id] = text
+
+    return artifacts
+
+
+def _parse_artifact_id(text: str) -> Optional[str]:
+    """Pull an artifact ID out of a Document Control block, either shape.
+
+    Two shapes exist in the corpus and DEF-007 was hidden by the gap between
+    them. Real initiative artifacts under ``docs/sdlc/`` use a table row
+    (``| Artifact ID | PRD-001 |``), which is all
+    :func:`_collect_upstream_artifacts` matches. The kit example and gold
+    fixtures use a bullet (``- PRD ID: PRD-EX-001``). Matching only the
+    table against a bullet-shaped corpus returns an empty dict, which is
+    indistinguishable from "no upstream exists" -- exactly the silent-empty
+    failure DEF-007 already is. Both shapes are matched here, and the caller
+    refuses on None rather than skipping.
+    """
+    table = re.search(r"\|\s*Artifact\s+ID\s*\|\s*(.*?)\s*\|", text, re.IGNORECASE)
+    if table and table.group(1).strip():
+        return table.group(1).strip()
+    # `- PRD ID: PRD-EX-001`, `- ACF ID: ACF-EX-001`, `- SAD ID: ...`
+    bullet = re.search(
+        r"^\s*[-*]\s*(?:[A-Za-z]{2,6}\s+)?ID\s*:\s*(\S+)\s*$",
+        text,
+        re.IGNORECASE | re.MULTILINE,
+    )
+    if bullet and bullet.group(1).strip():
+        return bullet.group(1).strip()
+    return None
+
+
+def _collect_gold_upstream(upstream_dir: Path) -> dict[str, str]:
+    """Read a gold set's upstream artifacts, keyed by artifact ID (DEF-007).
+
+    Deliberately NOT :func:`_collect_upstream_artifacts`: that one filters on
+    ``Status: FROZEN`` parsed from a table and silently drops anything it
+    cannot parse. Silence is the bug here. Every ``.md`` in the directory
+    must yield an ID or the whole load refuses, so a calibration can never
+    quietly measure a judge that received less context than it was told to
+    expect.
+
+    Raises :class:`CalibrationError` so the CLI's existing handler maps it to
+    exit 2, the same contract as every other calibration refusal.
+    """
+    from src.calibration import CalibrationError
+
+    files = sorted(upstream_dir.glob("*.md"))
+    if not files:
+        raise CalibrationError(
+            "missing_upstream",
+            f"No upstream artifacts (*.md) in {upstream_dir}. The validator "
+            f"prompt requires upstream context for intent comparison; "
+            f"calibrating without it measures a different judge than the one "
+            f"that gates freezes (DEF-007).",
+        )
+
+    artifacts: dict[str, str] = {}
+    for md_file in files:
+        text = md_file.read_text(encoding="utf-8")
+        artifact_id = _parse_artifact_id(text)
+        if not artifact_id:
+            raise CalibrationError(
+                "bad_upstream",
+                f"{md_file.name}: no artifact ID found in Document Control. "
+                f"Expected a table row (| Artifact ID | X |) or a bullet "
+                f"(- PRD ID: X). Refusing rather than delivering partial "
+                f"upstream context (DEF-007).",
+            )
+        if artifact_id in artifacts:
+            raise CalibrationError(
+                "bad_upstream",
+                f"{md_file.name}: duplicate artifact ID {artifact_id!r}. "
+                f"Upstream context must be unambiguous.",
+            )
+        artifacts[artifact_id] = text
 
     return artifacts
 
@@ -767,6 +843,35 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
         if template_path is not None:
             template_content = template_path.read_text(encoding="utf-8")
 
+    # DEF-007: the judge must receive the upstream artifacts its own Required
+    # Inputs name -- sad-validator compares intent against the PRD, and a
+    # judge without it PASSES intent gates by construction. Resolved BEFORE
+    # the adapters are built so a refusal costs zero provider calls.
+    upstream_dir = (
+        Path(args.upstream_dir).resolve()
+        if args.upstream_dir
+        else Path(args.gold_dir).resolve() / "upstream"
+    )
+    if not upstream_dir.is_dir():
+        print(
+            json.dumps({
+                "error": "missing_upstream",
+                "message": (
+                    f"No upstream directory at {upstream_dir}. Calibration "
+                    f"without upstream context measures a different judge "
+                    f"than the one that gates freezes (DEF-007). Create it, "
+                    f"or pass --upstream-dir."
+                ),
+            }),
+            file=sys.stderr,
+        )
+        return 2
+    try:
+        upstream_artifacts = _collect_gold_upstream(upstream_dir)
+    except CalibrationError as exc:
+        print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
+        return 2
+
     adapters = _build_adapters(config)
     if not adapters:
         print(
@@ -787,6 +892,7 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
             validator_prompt=validator_prompt,
             spec_content=spec_content,
             template_content=template_content,
+            upstream_artifacts=upstream_artifacts,
         )
     except CalibrationError as exc:
         print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
@@ -817,6 +923,13 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
 
     payload = _asdict(report)
     payload["report_path"] = str(report_out)
+    # DEF-007: make delivered context visible in the run output. A silently
+    # empty upstream set is the failure this fix exists to prevent; it should
+    # never again have to be inferred from a false pass months later. Read
+    # off the RUN, not off what this function loaded -- the loaded value
+    # reports full context even when delivery is broken, which is precisely
+    # the lie this field must not tell.
+    payload["upstream_artifacts"] = list(runs.upstream_artifact_ids)
     if runs_out is not None:
         payload["runs_path"] = str(runs_out)
     if report.verdict == "PASS":
@@ -1061,6 +1174,14 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Path to the artifact template for validation-context parity "
             "(default: docs/artifacts/<type>-template.md from the kits; optional)"
+        ),
+    )
+    cal.add_argument(
+        "--upstream-dir",
+        help=(
+            "Directory of upstream artifacts the judge compares against, e.g. "
+            "the PRD for intent comparison (default: <gold-dir>/upstream; "
+            "calibration refuses to run without it -- DEF-007)"
         ),
     )
     cal.add_argument(
