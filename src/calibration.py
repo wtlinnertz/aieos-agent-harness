@@ -169,6 +169,11 @@ class CalibrationRuns:
     model: str
     prompt_sha256: str
     case_runs: list[CaseRuns] = field(default_factory=list)
+    # DEF-007. Sourced from the dict actually handed to the judge, never
+    # from what a caller intended to supply -- a caller-derived value
+    # reports full context on a run that delivered none, which is the
+    # failure this field exists to expose.
+    upstream_artifact_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -378,6 +383,7 @@ def run_calibration(
     validator_prompt: str,
     spec_content: str = "",
     template_content: str = "",
+    upstream_artifacts: Optional[dict[str, str]] = None,
 ) -> CalibrationRuns:
     """Judge every gold case exactly :data:`RUNS_PER_CASE` times.
 
@@ -387,6 +393,17 @@ def run_calibration(
     requests per case is byte-identical (same prompt, same fixture content)
     and pinned to temperature 0.0 structurally, mirroring the loop's judge
     pin: a flip across these runs is judge instability, not sampling noise.
+
+    ``upstream_artifacts`` (DEF-007) closes the last context gap between a
+    calibration call and a real validation call. It was hardcoded ``{}``
+    from ``955b946`` until 2026-09-02, which made gates defined as
+    comparisons against upstream unmeasurable: ``sad-validator``'s Required
+    Inputs name "PRD (for intent comparison)", the prompt orders "evaluate
+    only what is explicitly present", and a judge handed no PRD therefore
+    PASSES intent gates by construction. That is the documented root cause
+    of the safety-critical ``mutant-intent-integrity`` false pass -- six
+    identical clean runs, zero variance. The CLI refuses rather than
+    calibrating without it; see ``_collect_gold_upstream``.
     """
     if not cases:
         raise CalibrationError("bad_gold_set", "run_calibration got zero gold cases")
@@ -397,6 +414,13 @@ def run_calibration(
     case_runs: list[CaseRuns] = []
     total_calls = len(cases) * RUNS_PER_CASE
     calls_made = 0
+    # Same object every call: the judge's context must be byte-identical
+    # across the three runs of a case, same as prompt and fixture.
+    upstream = dict(upstream_artifacts or {})
+    # Read off the REQUEST below, not off `upstream`. Deriving it here would
+    # report the context this function was handed rather than the context the
+    # judge received, and those diverge in exactly the case worth catching.
+    delivered_upstream_ids: list[str] = []
 
     for case in cases:
         verdicts: list[dict[str, str]] = []
@@ -408,7 +432,7 @@ def run_calibration(
                 spec_content=spec_content,
                 template_content=template_content,
                 prompt_content=validator_prompt,
-                upstream_artifacts={},
+                upstream_artifacts=upstream,
                 current_artifact=case.input_content,
                 correction_constraints=[],
                 metadata={
@@ -417,6 +441,8 @@ def run_calibration(
                 },
                 temperature=0.0,
             )
+            if not calls_made:
+                delivered_upstream_ids = sorted(request.upstream_artifacts)
             # DEF-003 (narrow fix): a provider failure -- expired key, 401,
             # 400, transport error -- must not escape as an unhandled
             # exception. Unhandled, it skips the CLI's CalibrationError
@@ -471,6 +497,7 @@ def run_calibration(
         model=model,
         prompt_sha256=prompt_sha256,
         case_runs=case_runs,
+        upstream_artifact_ids=delivered_upstream_ids,
     )
 
 
@@ -639,6 +666,11 @@ def write_runs(runs: CalibrationRuns, path: Path) -> Path:
             "prompt_sha256": runs.prompt_sha256,
         },
         "runs_per_case": RUNS_PER_CASE,
+        # DEF-007: which upstream artifacts this run's judge actually had.
+        # A dispute read months later cannot reconstruct context from the
+        # verdicts alone -- the 08-30 false pass took a source dive to
+        # explain, and this line is what would have answered it.
+        "upstream_artifact_ids": list(runs.upstream_artifact_ids),
         "cases": [
             {
                 "case_id": cr.case.case_id,

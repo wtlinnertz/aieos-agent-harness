@@ -518,6 +518,7 @@ class TestProviderFailureIsRefusal:
         gold_dir = tmp_path / "gold"
         gold_dir.mkdir()
         build_gold_set(gold_dir)
+        build_upstream(gold_dir / "upstream")  # DEF-007
 
         prompt_file = tmp_path / "validator-prompt.md"
         prompt_file.write_text(VALIDATOR_PROMPT, encoding="utf-8")
@@ -537,6 +538,7 @@ class TestProviderFailureIsRefusal:
             validator_prompt=str(prompt_file),
             spec_file=str(spec_file),
             template_file=None,
+            upstream_dir=None,
             role="freeze-gate",
             runs_out=None,
             report_out=None,
@@ -548,6 +550,290 @@ class TestProviderFailureIsRefusal:
         payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
         assert payload["error"] == "provider_error"
         assert "call 30 of 36" in payload["message"]
+
+
+PRD_BULLET = """\
+# PRD — Reference Data Service
+
+## 0. Document Control
+- PRD ID: PRD-EX-001
+- Status: Frozen
+
+## 1. Constraints
+- No external exposure outside the internal network
+"""
+
+ACF_BULLET = """\
+# ACF — Standard Service Guardrails
+
+## 0. Document Control
+- ACF ID: ACF-EX-001
+- Status: Frozen
+"""
+
+SAD_TABLE = """\
+# SAD — Table-shaped Document Control
+
+| Field | Value |
+|-------|-------|
+| Artifact ID | SAD-TBL-001 |
+| Status | FROZEN |
+"""
+
+
+def build_upstream(upstream_dir: Path, files: dict[str, str] | None = None) -> Path:
+    """Write an upstream artifact directory; PRD + ACF by default."""
+    upstream_dir.mkdir(parents=True, exist_ok=True)
+    for name, content in (files or {"01-prd.md": PRD_BULLET, "02-acf.md": ACF_BULLET}).items():
+        (upstream_dir / name).write_text(content, encoding="utf-8")
+    return upstream_dir
+
+
+class TestUpstreamContextReachesTheJudge:
+    """DEF-007: calibration must deliver the upstream artifacts the validator
+    prompt requires, or refuse.
+
+    `sad-validator`'s Required Inputs name "PRD (for intent comparison)" while
+    the prompt orders "evaluate only what is explicitly present". A judge
+    handed no PRD therefore PASSES intent gates by construction -- the root
+    cause of the `mutant-intent-integrity` false pass, six clean runs, zero
+    variance. Hardcoded `{}` from 955b946 until 2026-09-02.
+    """
+
+    def test_the_judge_actually_receives_the_upstream_content(self, tmp_path):
+        # THE anti-no-op test. A fix that wires up plumbing but delivers an
+        # empty dict looks identical to the bug from every other angle: the
+        # suite passes, calibration runs, and the false pass survives.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+
+        run_calibration(
+            cases,
+            judge,
+            validator_prompt=VALIDATOR_PROMPT,
+            upstream_artifacts={"PRD-EX-001": PRD_BULLET},
+        )
+
+        assert judge.calls, "no judge calls recorded"
+        for request in judge.calls:
+            assert request.upstream_artifacts == {"PRD-EX-001": PRD_BULLET}
+            assert "No external exposure" in request.upstream_artifacts["PRD-EX-001"]
+
+    def test_upstream_is_byte_identical_across_the_three_runs(self, tmp_path):
+        # Same invariant the prompt and fixture already carry: a flip across
+        # the three runs must be judge instability, never context drift.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+
+        run_calibration(
+            cases,
+            judge,
+            validator_prompt=VALIDATOR_PROMPT,
+            upstream_artifacts={"PRD-EX-001": PRD_BULLET, "ACF-EX-001": ACF_BULLET},
+        )
+
+        by_case: dict[str, list] = {}
+        for req in judge.calls:
+            by_case.setdefault(req.metadata["case_id"], []).append(req)
+        for reqs in by_case.values():
+            rendered = {json.dumps(r.upstream_artifacts, sort_keys=True) for r in reqs}
+            assert len(rendered) == 1
+
+    def test_reported_ids_come_from_delivery_not_intent(self, tmp_path):
+        # Caught by simulating the no-op during review: reporting the ids the
+        # CLI *loaded* printed a full upstream list on a run whose judge got
+        # nothing. The field must be derived from the same dict handed to the
+        # judge, so a broken delivery cannot report healthy context.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+
+        runs = run_calibration(
+            cases,
+            judge,
+            validator_prompt=VALIDATOR_PROMPT,
+            upstream_artifacts={"PRD-EX-001": PRD_BULLET, "ACF-EX-001": ACF_BULLET},
+        )
+
+        assert runs.upstream_artifact_ids == ["ACF-EX-001", "PRD-EX-001"]
+        delivered = sorted(judge.calls[0].upstream_artifacts)
+        assert runs.upstream_artifact_ids == delivered
+
+    def test_empty_delivery_reports_empty(self, tmp_path):
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+        runs = run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert runs.upstream_artifact_ids == []
+
+    def test_runs_evidence_file_records_the_context(self, tmp_path):
+        # Dispute analysis months later must be able to see what the judge
+        # had without a source dive.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        runs = run_calibration(
+            cases,
+            ScriptedJudgeAdapter(perfect_script(cases)),
+            validator_prompt=VALIDATOR_PROMPT,
+            upstream_artifacts={"PRD-EX-001": PRD_BULLET},
+        )
+        out = write_runs(runs, tmp_path / "runs.json")
+        written = json.loads(Path(out).read_text(encoding="utf-8"))
+        assert written["upstream_artifact_ids"] == ["PRD-EX-001"]
+
+    def test_omitting_upstream_still_defaults_to_empty(self, tmp_path):
+        # The parameter is optional at the engine seam; the CLI is what
+        # refuses. Keeps run_calibration usable in unit tests.
+        build_gold_set(tmp_path)
+        cases = load_gold_set(tmp_path)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+        run_calibration(cases, judge, validator_prompt=VALIDATOR_PROMPT)
+        assert judge.calls[0].upstream_artifacts == {}
+
+
+class TestUpstreamCollector:
+    """DEF-007's collector refuses where the old one silently skipped."""
+
+    def test_parses_bullet_document_control(self, tmp_path):
+        # The shape the gold fixtures actually use, and the one
+        # _collect_upstream_artifacts' table-only regex cannot see. Wiring
+        # calibration to that collector would have returned {} and "fixed"
+        # nothing.
+        from src.cli import _collect_gold_upstream
+
+        artifacts = _collect_gold_upstream(build_upstream(tmp_path / "upstream"))
+        assert sorted(artifacts) == ["ACF-EX-001", "PRD-EX-001"]
+        assert "No external exposure" in artifacts["PRD-EX-001"]
+
+    def test_parses_table_document_control_too(self, tmp_path):
+        from src.cli import _collect_gold_upstream
+
+        d = build_upstream(tmp_path / "upstream", {"04-sad.md": SAD_TABLE})
+        assert sorted(_collect_gold_upstream(d)) == ["SAD-TBL-001"]
+
+    def test_the_old_collector_cannot_see_the_bullet_shape(self, tmp_path):
+        # Pins the gap that hid DEF-007, so nobody "simplifies" the new
+        # collector back into the old one.
+        from src.cli import _collect_upstream_artifacts
+
+        sdlc = tmp_path / "docs" / "sdlc"
+        build_upstream(sdlc)
+        assert _collect_upstream_artifacts(tmp_path) == {}
+
+    def test_unparseable_file_refuses_rather_than_skipping(self, tmp_path):
+        from src.cli import _collect_gold_upstream
+
+        d = build_upstream(tmp_path / "upstream", {"junk.md": "# No document control\n"})
+        with pytest.raises(CalibrationError) as exc:
+            _collect_gold_upstream(d)
+        assert exc.value.code == "bad_upstream"
+        assert "junk.md" in exc.value.message
+
+    def test_partial_upstream_refuses_the_whole_load(self, tmp_path):
+        # One good file plus one unreadable one must not yield "one artifact
+        # delivered" -- partial context is the silent-degradation case.
+        from src.cli import _collect_gold_upstream
+
+        d = build_upstream(
+            tmp_path / "upstream", {"01-prd.md": PRD_BULLET, "junk.md": "# nothing\n"}
+        )
+        with pytest.raises(CalibrationError):
+            _collect_gold_upstream(d)
+
+    def test_duplicate_artifact_ids_refuse(self, tmp_path):
+        from src.cli import _collect_gold_upstream
+
+        d = build_upstream(
+            tmp_path / "upstream", {"a.md": PRD_BULLET, "b.md": PRD_BULLET}
+        )
+        with pytest.raises(CalibrationError) as exc:
+            _collect_gold_upstream(d)
+        assert exc.value.code == "bad_upstream"
+
+    def test_empty_directory_refuses(self, tmp_path):
+        from src.cli import _collect_gold_upstream
+
+        d = tmp_path / "upstream"
+        d.mkdir()
+        with pytest.raises(CalibrationError) as exc:
+            _collect_gold_upstream(d)
+        assert exc.value.code == "missing_upstream"
+
+
+class TestCalibrateRefusesWithoutUpstream:
+    """DEF-007 at the CLI contract: refuse, per decision 2026-09-02."""
+
+    @staticmethod
+    def _args(tmp_path, gold_dir, upstream_dir=None):
+        prompt_file = tmp_path / "validator-prompt.md"
+        prompt_file.write_text(VALIDATOR_PROMPT, encoding="utf-8")
+        spec_file = tmp_path / "spec.md"
+        spec_file.write_text("sad spec v1", encoding="utf-8")
+        return SimpleNamespace(
+            lock=str(tmp_path / "calibration.lock.yaml"),
+            check_only=False,
+            gold_dir=str(gold_dir),
+            validator=None,
+            prompt_sha=None,
+            model=None,
+            validator_prompt=str(prompt_file),
+            spec_file=str(spec_file),
+            template_file=None,
+            upstream_dir=upstream_dir,
+            role="freeze-gate",
+            runs_out=None,
+            report_out=None,
+        )
+
+    def test_missing_upstream_dir_exits_2_and_spends_nothing(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import src.cli as cli
+        from src.config import HarnessConfig
+
+        gold_dir = tmp_path / "gold"
+        gold_dir.mkdir()
+        build_gold_set(gold_dir)  # note: no upstream/ subdirectory
+
+        judge = ScriptedJudgeAdapter()
+        monkeypatch.setattr(cli, "_build_adapters", lambda config: {"scripted": judge})
+
+        exit_code = cli.cmd_calibrate(
+            self._args(tmp_path, gold_dir), HarnessConfig(aieos_root=str(tmp_path))
+        )
+
+        assert exit_code == 2
+        payload = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+        assert payload["error"] == "missing_upstream"
+        # The refusal must land before any paid call.
+        assert judge.calls == []
+
+    def test_upstream_reaches_the_judge_through_the_cli(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        import src.cli as cli
+        from src.config import HarnessConfig
+
+        gold_dir = tmp_path / "gold"
+        gold_dir.mkdir()
+        build_gold_set(gold_dir)
+        build_upstream(gold_dir / "upstream")  # the default location
+
+        cases = load_gold_set(gold_dir)
+        judge = ScriptedJudgeAdapter(perfect_script(cases))
+        monkeypatch.setattr(cli, "_build_adapters", lambda config: {"scripted": judge})
+
+        cli.cmd_calibrate(
+            self._args(tmp_path, gold_dir), HarnessConfig(aieos_root=str(tmp_path))
+        )
+
+        assert judge.calls, "no judge calls recorded"
+        delivered = judge.calls[0].upstream_artifacts
+        assert sorted(delivered) == ["ACF-EX-001", "PRD-EX-001"]
+        payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+        assert payload["upstream_artifacts"] == ["ACF-EX-001", "PRD-EX-001"]
 
 
 # ---------------------------------------------------------------------------
@@ -1083,6 +1369,7 @@ class TestCalibrateCli:
         cfg.write_bytes(b"providers:\n  mock:\n    enabled: true\n")
         gold = tmp_path / "gold"
         build_gold_set(gold, gates=("completeness", "structure"))
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         lock = tmp_path / "calibration.lock"
         report_out = tmp_path / "report.json"
         rc = main(
@@ -1109,6 +1396,7 @@ class TestCalibrateCli:
 
         gold = tmp_path / "gold"
         build_gold_set(gold)
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"}, script={
             "fail-000": [{"g1": "FAIL"}] * 3,
         })
@@ -1251,6 +1539,7 @@ class TestCalibrateSpecContext:
 
         gold = tmp_path / "gold"
         build_gold_set(gold)
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         judge = ScriptedJudgeAdapter(
             default_gates={"g1": "PASS"},
             script={"fail-000": [{"g1": "FAIL"}] * 3},
@@ -1426,6 +1715,7 @@ class TestRunsOutCli:
 
         gold = tmp_path / "gold"
         build_gold_set(gold)
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"}, script={
             "fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE,
         })
@@ -1455,6 +1745,7 @@ class TestRunsOutCli:
 
         gold = tmp_path / "gold"
         build_gold_set(gold)
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"}, script={
             "fail-000": [{"g1": "FAIL"}] * RUNS_PER_CASE,
         })
@@ -1483,6 +1774,7 @@ class TestRunsOutCli:
 
         gold = tmp_path / "gold"
         build_gold_set(gold)
+        build_upstream(gold / "upstream")  # DEF-007: calibrate now refuses without it
         judge = ScriptedJudgeAdapter(default_gates={"g1": "PASS"})
         monkeypatch.setattr(
             cli_mod, "_build_adapters", lambda config: {"scripted": judge}
