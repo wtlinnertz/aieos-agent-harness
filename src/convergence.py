@@ -48,6 +48,22 @@ class TruncatedGenerationError(RuntimeError):
         )
 
 
+def _usage(response: AgentResponse) -> dict:
+    """What one call cost, recorded beside the verdict it paid for.
+
+    Lands in .aieos/verdicts.jsonl with the ledger entry, so a run can be
+    costed per artifact and per judge without reconstructing anything.
+    """
+    return {
+        "model": response.model,
+        "tokens_in": response.tokens_in,
+        "tokens_out": response.tokens_out,
+        "cache_read_tokens": response.cache_read_tokens,
+        "cache_write_tokens": response.cache_write_tokens,
+        "cost_usd": response.cost_usd,
+    }
+
+
 def parse_validation_result(response: AgentResponse) -> ValidationResult:
     """Extract JSON from response content and parse into ValidationResult.
 
@@ -204,6 +220,10 @@ class ConvergenceLoop:
                     "model": val_response.model,
                     "temperature": validation_request.temperature,
                 },
+                "usage": {
+                    "generate": _usage(gen_response),
+                    "validate": _usage(val_response),
+                },
             }
             state.ledger.append(ledger_entry)
 
@@ -315,6 +335,7 @@ class ConvergenceLoop:
                         "model": lens_response.model,
                         "temperature": lens_request.temperature,
                     },
+                    "usage": {"lens": _usage(lens_response)},
                 })
 
                 if lens_result.status == "FAIL":

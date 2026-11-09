@@ -6,12 +6,20 @@ Records per-invocation metrics to JSONL and provides aggregation queries.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 
-from src.models import AgentSpecies, InvocationRecord, LifecycleEvent, RoutingStrategy
+from src.models import (
+    AgentRequest,
+    AgentResponse,
+    AgentSpecies,
+    InvocationRecord,
+    LifecycleEvent,
+    RoutingStrategy,
+)
 
 
 def _record_to_dict(record: InvocationRecord) -> dict:
@@ -265,3 +273,73 @@ class ObservabilityLayer:
             }
 
         return result
+
+
+class ObservedAdapter:
+    """Adapter wrapper that records every invoke() to the observability log.
+
+    DEF-001: ObservabilityLayer.record() had no production caller, so the
+    metrics log stayed empty and `harness costs` / `harness health` read
+    nothing. The CLI wraps every adapter it builds in this, so each provider
+    call -- success or failure -- leaves one InvocationRecord. Anything else
+    is delegated to the wrapped adapter unchanged.
+    """
+
+    def __init__(self, inner, layer: ObservabilityLayer) -> None:
+        self._inner = inner
+        self._layer = layer
+
+    def __getattr__(self, name):
+        if name == "_inner":
+            raise AttributeError(name)
+        return getattr(self._inner, name)
+
+    @property
+    def provider_name(self) -> str:
+        return self._inner.provider_name
+
+    @property
+    def model_name(self) -> str:
+        return self._inner.model_name
+
+    def health(self):
+        return self._inner.health()
+
+    def cost_estimate(self, request: AgentRequest) -> float:
+        return self._inner.cost_estimate(request)
+
+    def invoke(self, request: AgentRequest) -> AgentResponse:
+        start = time.monotonic()
+        try:
+            response = self._inner.invoke(request)
+        except Exception as exc:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            self._layer.record(self._record(request, None, elapsed_ms, str(exc)))
+            raise
+        self._layer.record(self._record(request, response, response.latency_ms, None))
+        return response
+
+    def _record(
+        self,
+        request: AgentRequest,
+        response: AgentResponse | None,
+        latency_ms: float,
+        error: str | None,
+    ) -> InvocationRecord:
+        return InvocationRecord(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            artifact_type=request.artifact_type,
+            artifact_id=request.metadata.get("artifact_id", ""),
+            event=request.event,
+            provider=self._inner.provider_name,
+            model=response.model if response else self._inner.model_name,
+            strategy=RoutingStrategy.DIRECT,
+            tokens_in=response.tokens_in if response else 0,
+            tokens_out=response.tokens_out if response else 0,
+            cost_usd=response.cost_usd if response else 0.0,
+            latency_ms=round(latency_ms, 1),
+            result="success" if response else "error",
+            validation_status=None,
+            convergence_iteration=0,
+            error=error,
+        )

@@ -33,6 +33,14 @@ _DEFAULT_PRICING: dict[str, dict[str, float]] = {
 
 _UNKNOWN_PRICING: dict[str, float] = {"input": 0.0, "output": 0.0}
 
+# Prompt-cache pricing as multipliers on the input rate: reads 0.1x,
+# 5-minute writes 1.25x. Some newer models price reads lower (0.05x for
+# Opus/Sonnet 5.5, 0.025x for Fable/Mythos 5.1); give those entries explicit
+# "cache_read"/"cache_write" per-1K rates instead of trusting the default.
+_CACHE_READ_MULTIPLIER = 0.1
+_CACHE_WRITE_MULTIPLIER = 1.25
+_EPHEMERAL = {"type": "ephemeral"}
+
 
 def _pricing_for(model: str) -> dict[str, float]:
     """Pricing for ``model``, or a loud zero if we don't know it (G-12)."""
@@ -108,8 +116,18 @@ class AnthropicAdapter:
         User message = prompt content + template + upstream artifacts +
                         correction constraints (if any).
         """
-        system_message = request.spec_content
+        prefix, suffix = AnthropicAdapter._split_user_message(request)
+        return request.spec_content, prefix + suffix
 
+    @staticmethod
+    def _split_user_message(request: AgentRequest) -> tuple[str, str]:
+        """Split the user message at the prompt-cache boundary.
+
+        Prefix = what repeats across convergence iterations and judge reruns
+        (prompt, template, upstream artifacts, declared inputs). Suffix =
+        what changes per iteration (current artifact, correction
+        constraints). prefix + suffix is the exact user message.
+        """
         parts: list[str] = [request.prompt_content]
 
         # Template
@@ -122,6 +140,9 @@ class AnthropicAdapter:
         # Declared inputs (G-3/G-5): principles files + entry brief.
         for input_key, content in request.declared_inputs.items():
             parts.append(f"\n\n## Declared Input — {input_key}\n\n{content}")
+
+        prefix = "".join(parts)
+        parts = []
 
         # Current artifact (if present — used for validation requests)
         if request.current_artifact:
@@ -136,13 +157,21 @@ class AnthropicAdapter:
             )
             parts.append("\n\n## Correction Constraints\n\n" + bullets)
 
-        user_message = "".join(parts)
-        return system_message, user_message
+        return prefix, "".join(parts)
 
     def invoke(self, request: AgentRequest) -> AgentResponse:
         """Build prompt from request fields, call Claude, parse response."""
         client = self._get_client()
-        system_message, user_message = self._build_messages(request)
+        # Cache breakpoints on the stable parts: the spec (system) and the
+        # user prefix. Below the model's minimum cacheable length the API
+        # skips caching without error, so this costs nothing when it misses.
+        prefix, suffix = self._split_user_message(request)
+        system_blocks = [
+            {"type": "text", "text": request.spec_content, "cache_control": _EPHEMERAL}
+        ]
+        user_blocks = [{"type": "text", "text": prefix, "cache_control": _EPHEMERAL}]
+        if suffix:
+            user_blocks.append({"type": "text", "text": suffix})
 
         # FR-014: pass temperature only when the request pins one (judge
         # calls pin 0.0); None keeps the provider default for generation.
@@ -155,8 +184,8 @@ class AnthropicAdapter:
             response = client.messages.create(
                 model=self._model,
                 max_tokens=self._max_tokens,
-                system=system_message,
-                messages=[{"role": "user", "content": user_message}],
+                system=system_blocks,
+                messages=[{"role": "user", "content": user_blocks}],
                 **extra,
             )
         except Exception as exc:
@@ -182,8 +211,8 @@ class AnthropicAdapter:
                 response = client.messages.create(
                     model=self._model,
                     max_tokens=self._max_tokens,
-                    system=system_message,
-                    messages=[{"role": "user", "content": user_message}],
+                    system=system_blocks,
+                    messages=[{"role": "user", "content": user_blocks}],
                     **extra,
                 )
             else:
@@ -196,15 +225,26 @@ class AnthropicAdapter:
             if hasattr(block, "text"):
                 content += block.text
 
-        tokens_in = response.usage.input_tokens
-        tokens_out = response.usage.output_tokens
+        # The API's input_tokens counts only tokens after the last cache
+        # breakpoint; cached reads and writes are reported apart and priced
+        # apart. tokens_in stays TOTAL input so its meaning does not shift.
+        usage = response.usage
+        uncached_in = usage.input_tokens
+        cache_read = getattr(usage, "cache_read_input_tokens", None) or 0
+        cache_write = getattr(usage, "cache_creation_input_tokens", None) or 0
+        tokens_in = uncached_in + cache_read + cache_write
+        tokens_out = usage.output_tokens
 
         # Calculate cost
         pricing = _pricing_for(self._model)
+        read_rate = pricing.get("cache_read", pricing["input"] * _CACHE_READ_MULTIPLIER)
+        write_rate = pricing.get("cache_write", pricing["input"] * _CACHE_WRITE_MULTIPLIER)
         cost_usd = (
-            (tokens_in / 1000) * pricing["input"]
-            + (tokens_out / 1000) * pricing["output"]
-        )
+            uncached_in * pricing["input"]
+            + cache_read * read_rate
+            + cache_write * write_rate
+            + tokens_out * pricing["output"]
+        ) / 1000
 
         # Compute input content hash for provenance
         hash_input = (
@@ -229,6 +269,8 @@ class AnthropicAdapter:
             truncated=(response.stop_reason == "max_tokens"),
             human_author=request.metadata.get("human_author"),
             input_content_hash=input_hash,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )
 
     def health(self) -> HealthStatus:

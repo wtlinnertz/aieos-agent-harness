@@ -17,7 +17,7 @@ from src.models import (
     LifecycleEvent,
     RoutingStrategy,
 )
-from src.observability import ObservabilityLayer
+from src.observability import ObservabilityLayer, ObservedAdapter
 
 
 def _build_adapters(config: HarnessConfig) -> dict[str, object]:
@@ -57,7 +57,9 @@ def _build_adapters(config: HarnessConfig) -> dict[str, object]:
                 always_fail=True,
             )
 
-    return adapters
+    # DEF-001: every provider call lands in the observability log.
+    layer = ObservabilityLayer(Path(config.observability_log))
+    return {name: ObservedAdapter(a, layer) for name, a in adapters.items()}
 
 
 def _resolve_kit_files(

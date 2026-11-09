@@ -34,6 +34,10 @@ class RoutingStrategy(Enum):
     PIPELINE = "PIPELINE"
     FALLBACK = "FALLBACK"
     COST_AWARE = "COST_AWARE"
+    # One adapter called directly, no routing engine involved. What every CLI
+    # command does today; recorded as such rather than as a strategy that
+    # did not run.
+    DIRECT = "DIRECT"
 
 
 class AgentSpecies(Enum):
@@ -107,6 +111,10 @@ class AgentResponse:
     input_content_hash: Optional[str] = None
     modification_record: Optional[list[dict]] = None
     compliance_attestation: Optional[str] = None
+    # Prompt-cache breakdown of tokens_in (which stays TOTAL input). 0 = the
+    # provider reported none.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass

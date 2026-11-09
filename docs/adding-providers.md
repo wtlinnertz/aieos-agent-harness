@@ -147,6 +147,7 @@ Before merging your adapter, verify:
 - [ ] **Auth externalized**: API keys come from environment variables, never from config files or source code
 - [ ] **Error handling**: network errors, rate limits, and malformed responses raise clear exceptions (not silent failures)
 - [ ] **Audit logging**: the `invoke()` method returns accurate `tokens_in`, `tokens_out`, `cost_usd`, and `latency_ms` so the Observability Layer can record them
+- [ ] **Cache usage**: if the provider has prompt caching, `tokens_in` stays total input, `cache_read_tokens` and `cache_write_tokens` break it down, and `cost_usd` prices each bucket at its own rate
 - [ ] **Health check**: `health()` returns `HealthStatus.DOWN` when the provider is unreachable, `DEGRADED` when partially available
 - [ ] **Cost estimate**: `cost_estimate()` returns a reasonable USD estimate so cost-aware routing can compare providers
 - [ ] **Protocol compliance**: the adapter passes `isinstance(adapter, AgentAdapter)` (the Protocol is `runtime_checkable`)
