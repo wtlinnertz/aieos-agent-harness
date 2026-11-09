@@ -2,6 +2,7 @@
 
 **Project:** aieos-agent-harness (ECO-009)
 **Assessment Date:** 2026-03-26
+**Corrected:** 2026-11-08 — observability and cost claims re-checked against the code. Until then nothing in `src/` wrote the observability log (DEF-001), and `detect_cost_anomaly()` still has no production caller. Rows changed: `traceability_complete`, `circuit_breakers`, Cost governance, Cost anomaly alerts, Operations domain counts.
 **Assessor:** Claude Opus 4.6 (automated assessment)
 **Spec Version:** practice-assessment-spec v1.0
 
@@ -56,7 +57,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | `hitl_position_declared` | **PASS** | CLAUDE.md §Core Concepts lists all 7 invariants. Workflow table above declares HITL/HOTL positions. `src/invariants.py:check_human_freeze_decision()` enforces programmatically. |
 | `non_negotiables_defined` | **PASS** | `src/invariants.py` codifies 7 non-negotiables with programmatic enforcement. CLAUDE.md §What Not To Do lists 6 explicit prohibitions. `check_human_freeze_decision(auto_freeze_attempted=True)` returns FAIL. |
 | `approval_gates_present` | **PASS** | `cli.py` lifecycle command prints "Artifact ready for human review. Freeze? (harness does not auto-freeze)" — human approval gate before any state transition. Convergence loop escalates after 3 iterations. |
-| `traceability_complete` | **PASS** | `src/observability.py` records per-invocation: timestamp, artifact_id, provider, model, tokens, cost, latency, result, validation_status, convergence_iteration. `src/state.py:append_journal_entry()` logs decisions to sherpa journal. JSONL is append-only. |
+| `traceability_complete` | **PASS** | Every provider call is recorded to the observability JSONL by `ObservedAdapter` (wired into the CLI 2026-11-08, DEF-001): timestamp, artifact type and id, event, provider, model, tokens, cost, latency, result, error. Validation status, iteration, and per-call usage are recorded per verdict in `.aieos/verdicts.jsonl`. `src/state.py:append_journal_entry()` logs decisions to sherpa journal. JSONL is append-only. |
 | `provenance_recorded` | **PASS** | `AgentResponse` records 5 provenance elements: (1) agent identity (provider + model), (2) human_author (from request metadata), (3) input_content_hash (SHA256 of spec+template+prompt+upstream), (4) modification_record (optional audit trail), (5) compliance_attestation (optional). Adapters compute hash and pass human_author automatically. Evidence: `src/models.py` fields, `src/adapters/anthropic.py` hash computation, `tests/test_models.py::TestMockAdapterProvenance`. |
 | `governance_proportional` | **PASS** | Cost-aware routing (`src/routing.py:_cost_aware`) classifies by risk tier. Convergence loop has different bounds. PRK lens orchestration applies heavier review to high-risk artifacts (Opus for security, Sonnet for others). |
 | `hitl_architecture_addressed` | **PASS** | Six layers addressed: (1) Input — spec/template/prompt validated before invocation, (2) Planning — lifecycle binder resolves strategy, (3) Review — validation in separate session, (4) Execution — convergence loop bounds iterations, (5) Observability — JSONL metrics per invocation, (6) Feedback — journal entries capture decision rationale. |
@@ -77,7 +78,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | `supply_chain_verification` | **PASS** | `requirements-lock.txt` pins all dependencies to exact versions (pyyaml==6.0.2, pytest==8.3.5, anthropic==0.40.0, openai==1.50.0). Hash generation noted for future enhancement via pip-tools. No MCP servers (N/A). `requirements.txt` directs users to lock file for verified installs. |
 | `scope_boundaries` | **PASS** | Each adapter has defined scope: `AnthropicAdapter` only calls Anthropic API, `OpenAIAdapter` only calls OpenAI API, `ToolAdapter` runs only the configured command. `CircuitBreaker` in routing.py enforces error thresholds. Lifecycle binder restricts which adapters handle which events. |
 | `delegation_limits` | **PASS** | Convergence loop bounded to `max_iterations=3` in `convergence.py`. Pipeline routing has finite adapter chain (no recursion). No agent-to-agent delegation beyond the configured chain. `check_bounded_convergence()` enforces programmatically. |
-| `circuit_breakers` | **PASS** | `src/routing.py:CircuitBreaker` — tracks per-provider failures, configurable `max_failures` and `reset_seconds`. Cost anomaly detection in `observability.py` (3x threshold). CLI `health` command surfaces provider status. |
+| `circuit_breakers` | **PASS** | `src/routing.py:CircuitBreaker` — tracks per-provider failures, configurable `max_failures` and `reset_seconds`. `detect_cost_anomaly()` exists in `observability.py` (3x threshold) but nothing calls it yet (FR-026 backstop). CLI `health` command surfaces provider status. |
 | `shadow_agent_governance` | **PASS** | `docs/shadow-agent-scan.md` documents 4-method scan methodology (API key audit, service account inventory, network traffic, team interviews). Scan date: 2026-03-26. Result: no shadow agents found. Disposition: N/A. Re-scan schedule: quarterly or when new adapters/team members added. |
 | `data_privacy_classification` | **PASS** | `docs/data-classification.md` classifies all 6 data sources (spec, template, prompt, upstream artifacts, correction constraints, metadata) with retention policies. Agent context windows documented as transient (per-invocation). Sensitive data handling responsibilities delegated to consuming project. Regulatory applicability documented (no GDPR/CCPA/HIPAA by default). |
 
@@ -249,15 +250,15 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 
 | Item | Status | Score | Evidence |
 |------|--------|-------|----------|
-| AI pipeline observability | Full | 100% | `src/observability.py` — JSONL per invocation with cost, latency, tokens |
-| Cost governance | Full | 100% | `cost_estimate()` per adapter, `cost_summary()` aggregation, `detect_cost_anomaly()` 3x threshold |
+| AI pipeline observability | Full | 100% | `src/observability.py` — JSONL per invocation with cost, latency, tokens. Producer wired 2026-11-08 (DEF-001); before that the log was never written. |
+| Cost governance | Partial | 50% | `cost_estimate()` per adapter and `cost_summary()` aggregation work. `detect_cost_anomaly()` has no caller and no spend cap exists (FR-029). |
 | DORA baselines | Not | 0% | No DORA metric tracking |
 | Adoption quality measurement | Not | 0% | No adoption metrics |
 | Staged rollout methodology | Not | 0% | No staged rollout plan |
 | AI maturity model adoption | Not | 0% | This assessment is the first application |
 | Incident response for AI | Partial | 50% | Circuit breaker handles transient failures. No formal AI incident playbook. |
 | LLM call tracing | Full | 100% | Every invoke() recorded with provider, model, tokens, latency |
-| Cost anomaly alerts | Full | 100% | `detect_cost_anomaly()` with configurable window |
+| Cost anomaly alerts | Not | 0% | `detect_cost_anomaly()` is implemented and tested but no production path calls it (FR-026 backstop). |
 | Prompt regression testing | Not | 0% | No prompt regression suite |
 | Integration/interop standards | Full | 100% | `AgentAdapter` Protocol defines standard interface. Adapter conformance documented. |
 | Provenance tracking | Partial | 50% | Provider + model tracked. Full 5-element provenance missing (see Foundation). |
@@ -272,7 +273,7 @@ AIEOS Agent Harness is a pluggable multi-agent orchestration engine for the AIEO
 | Cost tracking per team label | Partial | 50% | Cost tracked per provider/artifact_type, not per team |
 | Make agent state observable | Full | 100% | Same as above — ER + journal + JSONL |
 
-**Domain Score: 48%** (10 full + 4 partial + 8 not = 1000+200+0 / 2200)
+**Domain Score: 48%** (8 full + 5 partial + 9 not = 800+250+0 / 2200)
 
 **Improvement:** Configure CI/CD. Add prompt regression testing. Document incident response playbook.
 

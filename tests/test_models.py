@@ -42,7 +42,8 @@ class TestEnums:
         assert RoutingStrategy.PIPELINE.value == "PIPELINE"
         assert RoutingStrategy.FALLBACK.value == "FALLBACK"
         assert RoutingStrategy.COST_AWARE.value == "COST_AWARE"
-        assert len(RoutingStrategy) == 4
+        assert RoutingStrategy.DIRECT.value == "DIRECT"
+        assert len(RoutingStrategy) == 5
 
     def test_health_status_values(self):
         assert HealthStatus.OK.value == "OK"

@@ -34,6 +34,10 @@ class RoutingStrategy(Enum):
     PIPELINE = "PIPELINE"
     FALLBACK = "FALLBACK"
     COST_AWARE = "COST_AWARE"
+    # One adapter called directly, no routing engine involved. What every CLI
+    # command does today; recorded as such rather than as a strategy that
+    # did not run.
+    DIRECT = "DIRECT"
 
 
 class AgentSpecies(Enum):
