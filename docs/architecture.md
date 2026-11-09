@@ -69,6 +69,10 @@ Reads and writes Markdown-based state files on disk:
 
 Records per-invocation metrics as JSON lines to a JSONL file. Each `InvocationRecord` captures timestamp, artifact type/ID, event, provider, model, routing strategy, token counts, cost, latency, result, validation status, and convergence iteration. Provides aggregation queries: cost summary (by provider, by artifact type), provider health summary, and cost anomaly detection (flags invocations exceeding 3x the rolling mean).
 
+The convergence loop also records a `usage` block on every ledger entry (generator and validator per iteration, and each lens): model, `tokens_in`, `tokens_out`, `cache_read_tokens`, `cache_write_tokens`, and `cost_usd`. The driver persists these entries to the initiative's `.aieos/verdicts.jsonl`, so each verdict sits beside what it cost.
+
+The Anthropic adapter marks two prompt-cache breakpoints: the spec (system block) and the stable user prefix (prompt, template, upstream artifacts, declared inputs). The per-iteration suffix (current artifact, correction constraints) is sent uncached after them. The text the model receives is unchanged. Below a model's minimum cacheable length the API skips caching without an error.
+
 ## Request flow
 
 ```

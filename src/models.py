@@ -107,6 +107,10 @@ class AgentResponse:
     input_content_hash: Optional[str] = None
     modification_record: Optional[list[dict]] = None
     compliance_attestation: Optional[str] = None
+    # Prompt-cache breakdown of tokens_in (which stays TOTAL input). 0 = the
+    # provider reported none.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
 
 
 @dataclass
