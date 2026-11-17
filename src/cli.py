@@ -199,6 +199,19 @@ def _collect_gold_upstream(upstream_dir: Path) -> dict[str, str]:
     return artifacts
 
 
+def _collect_case_upstream(cases: list) -> dict[str, dict[str, str]]:
+    """Read each overriding gold case's own upstream set (``upstream_dir``).
+
+    Same refusal contract as :func:`_collect_gold_upstream`: a declared
+    directory that is missing or yields no artifact IDs refuses the run.
+    """
+    return {
+        case.case_id: _collect_gold_upstream(case.upstream_dir)
+        for case in cases
+        if case.upstream_dir is not None
+    }
+
+
 # ---------------------------------------------------------------------------
 # Command handlers
 # ---------------------------------------------------------------------------
@@ -870,6 +883,7 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
         return 2
     try:
         upstream_artifacts = _collect_gold_upstream(upstream_dir)
+        case_upstream = _collect_case_upstream(cases)
     except CalibrationError as exc:
         print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
         return 2
@@ -895,6 +909,7 @@ def cmd_calibrate(args: argparse.Namespace, config: HarnessConfig) -> int:
             spec_content=spec_content,
             template_content=template_content,
             upstream_artifacts=upstream_artifacts,
+            case_upstream=case_upstream,
         )
     except CalibrationError as exc:
         print(json.dumps({"error": exc.code, "message": exc.message}), file=sys.stderr)
