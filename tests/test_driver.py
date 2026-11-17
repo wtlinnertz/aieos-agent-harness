@@ -286,7 +286,9 @@ class TestFreezeBeforePromoteIsEnforced:
             driver.run_artifact("SAD")
 
     def test_proceeds_once_upstream_is_frozen(self, tmp_path):
-        initiative, driver = self._driver(tmp_path)
+        # FR-012 R2: a generated SAD must cite its frozen PRD's ID to pass.
+        gen = MockAdapter(preset_responses={"SAD": "# SAD\n\nTraces to PRD-INIT-001."})
+        initiative, driver = self._driver(tmp_path, adapter=gen)
         self._frozen_prd(initiative)
         assert driver.run_artifact("SAD") == LifecycleResult.CONVERGED
 

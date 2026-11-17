@@ -16,6 +16,7 @@ from src.models import (
     LifecycleEvent,
     ValidationResult,
 )
+from src.referential_checks import apply_referential_findings, run_referential_checks
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +201,17 @@ class ConvergenceLoop:
 
             # Step 3: Parse validation result
             result = parse_validation_result(val_response)
+            # FR-012 / FR-014 section 4h: presence checks run in code on the
+            # same inputs the judge saw. A referential FAIL overrides a judge
+            # PASS on its gate; nothing here can pass a gate the judge failed.
+            result = apply_referential_findings(
+                result,
+                run_referential_checks(
+                    validation_request.artifact_type,
+                    gen_response.content,
+                    validation_request.upstream_artifacts,
+                ),
+            )
 
             # Record in ledger. FR-014: every verdict carries provenance --
             # the sha256 of the prompt content the judge actually received

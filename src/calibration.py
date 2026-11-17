@@ -42,6 +42,7 @@ import yaml
 from src.adapters.base import AgentAdapter
 from src.convergence import parse_validation_result
 from src.models import AgentRequest, LifecycleEvent
+from src.referential_checks import apply_referential_findings, run_referential_checks
 
 # Ratified decision: three identical runs per case, always. Deliberately a
 # constant, not a parameter — a knob here would let a flaky judge be
@@ -475,6 +476,17 @@ def run_calibration(
                     f"Case {case.case_id} run {run_index + 1}: judge returned "
                     f"an unparseable verdict: {exc}",
                 ) from exc
+            # FR-012 / FR-014 section 4h: identical to the ConvergenceLoop call,
+            # on the request the judge received, so calibration measures the
+            # same verdict that gates a freeze.
+            result = apply_referential_findings(
+                result,
+                run_referential_checks(
+                    request.artifact_type,
+                    request.current_artifact or "",
+                    request.upstream_artifacts,
+                ),
+            )
             verdicts.append(dict(result.hard_gates))
             # The judge's own reasons, kept verbatim. Recorded for dispute
             # analysis only -- scoring never sees this.

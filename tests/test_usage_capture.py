@@ -218,7 +218,10 @@ class TestLedgerCarriesUsage:
         assert usage["validate"]["cost_usd"] == 0.005
 
     def test_lens_entry_records_lens_usage(self):
-        gen = _PricedMock(cost=0.02, cache_read=0)
+        # FR-012 R2: the generated SAD cites its upstream PRD so validation passes.
+        gen = _PricedMock(
+            cost=0.02, cache_read=0, preset_responses={"SAD": "# SAD\n\nTraces to PRD-1."}
+        )
         val = _PricedMock(cost=0.005, cache_read=0, preset_responses={"SAD": PASS_JSON})
         lens = _PricedMock(
             model_name="lens-model",
