@@ -77,7 +77,7 @@ class SequentialMockAdapter:
 # Fixture validation JSON responses
 # ---------------------------------------------------------------------------
 
-ARTIFACT_V1 = "# SAD v1\n\nInitial architecture with missing dependency map."
+ARTIFACT_V1 = "# SAD v1\n\nTraces to PRD-TEST-001. Initial architecture with missing dependency map."
 
 VALIDATION_FAIL_2_ISSUES = json.dumps({
     "status": "FAIL",
@@ -95,7 +95,7 @@ VALIDATION_FAIL_2_ISSUES = json.dumps({
     "completeness_score": 40,
 })
 
-ARTIFACT_V2 = "# SAD v2\n\nArchitecture with dependency map added but layer assignment still missing."
+ARTIFACT_V2 = "# SAD v2\n\nTraces to PRD-TEST-001. Architecture with dependency map added but layer assignment still missing."
 
 VALIDATION_FAIL_1_ISSUE = json.dumps({
     "status": "FAIL",
@@ -112,7 +112,7 @@ VALIDATION_FAIL_1_ISSUE = json.dumps({
     "completeness_score": 70,
 })
 
-ARTIFACT_V3 = "# SAD v3\n\nFull architecture with deps and layer assignment."
+ARTIFACT_V3 = "# SAD v3\n\nTraces to PRD-TEST-001. Full architecture with deps and layer assignment."
 
 VALIDATION_PASS = json.dumps({
     "status": "PASS",

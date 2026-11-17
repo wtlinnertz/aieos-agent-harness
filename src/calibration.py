@@ -42,6 +42,7 @@ import yaml
 from src.adapters.base import AgentAdapter
 from src.convergence import parse_validation_result
 from src.models import AgentRequest, LifecycleEvent
+from src.referential_checks import apply_referential_findings, run_referential_checks
 
 # Ratified decision: three identical runs per case, always. Deliberately a
 # constant, not a parameter — a knob here would let a flaky judge be
@@ -128,6 +129,10 @@ class GoldCase:
     source: str
     dispute_ref: Optional[str] = None
     input_content: str = ""
+    # gold-case.yaml `upstream_dir`, resolved against the case file. Overrides
+    # the set's shared upstream for a case written against another
+    # initiative's PRD (the G-9 receipt case, 2026-11-16).
+    upstream_dir: Optional[Path] = None
 
 
 @dataclass
@@ -152,6 +157,8 @@ class CaseRuns:
     case: GoldCase
     gate_verdicts: list[dict[str, str]] = field(default_factory=list)
     run_evidence: list[dict] = field(default_factory=list)
+    # Upstream IDs on this case's judge requests, read off the request.
+    upstream_artifact_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -309,6 +316,11 @@ def _parse_gold_case(case_file: Path) -> GoldCase:
         # The judge sees the LF-normalized text on every platform: identical
         # input is the precondition the stability gate stands on.
         input_content=normalized,
+        upstream_dir=(
+            (case_file.parent / str(raw["upstream_dir"])).resolve()
+            if raw.get("upstream_dir")
+            else None
+        ),
     )
 
 
@@ -384,6 +396,7 @@ def run_calibration(
     spec_content: str = "",
     template_content: str = "",
     upstream_artifacts: Optional[dict[str, str]] = None,
+    case_upstream: Optional[dict[str, dict[str, str]]] = None,
 ) -> CalibrationRuns:
     """Judge every gold case exactly :data:`RUNS_PER_CASE` times.
 
@@ -404,6 +417,10 @@ def run_calibration(
     of the safety-critical ``mutant-intent-integrity`` false pass -- six
     identical clean runs, zero variance. The CLI refuses rather than
     calibrating without it; see ``_collect_gold_upstream``.
+
+    ``case_upstream`` maps case_id to that case's own upstream set and
+    replaces ``upstream_artifacts`` for that case only (gold-case.yaml
+    ``upstream_dir``).
     """
     if not cases:
         raise CalibrationError("bad_gold_set", "run_calibration got zero gold cases")
@@ -420,11 +437,13 @@ def run_calibration(
     # Read off the REQUEST below, not off `upstream`. Deriving it here would
     # report the context this function was handed rather than the context the
     # judge received, and those diverge in exactly the case worth catching.
-    delivered_upstream_ids: list[str] = []
+    delivered_upstream_ids: set[str] = set()
 
     for case in cases:
         verdicts: list[dict[str, str]] = []
         evidence: list[dict] = []
+        case_context = dict((case_upstream or {}).get(case.case_id, upstream))
+        case_upstream_ids: list[str] = []
         for run_index in range(RUNS_PER_CASE):
             request = AgentRequest(
                 artifact_type=case.artifact_type,
@@ -432,7 +451,7 @@ def run_calibration(
                 spec_content=spec_content,
                 template_content=template_content,
                 prompt_content=validator_prompt,
-                upstream_artifacts=upstream,
+                upstream_artifacts=case_context,
                 current_artifact=case.input_content,
                 correction_constraints=[],
                 metadata={
@@ -441,8 +460,8 @@ def run_calibration(
                 },
                 temperature=0.0,
             )
-            if not calls_made:
-                delivered_upstream_ids = sorted(request.upstream_artifacts)
+            case_upstream_ids = sorted(request.upstream_artifacts)
+            delivered_upstream_ids.update(case_upstream_ids)
             # DEF-003 (narrow fix): a provider failure -- expired key, 401,
             # 400, transport error -- must not escape as an unhandled
             # exception. Unhandled, it skips the CLI's CalibrationError
@@ -475,6 +494,17 @@ def run_calibration(
                     f"Case {case.case_id} run {run_index + 1}: judge returned "
                     f"an unparseable verdict: {exc}",
                 ) from exc
+            # FR-012 / FR-014 section 4h: identical to the ConvergenceLoop call,
+            # on the request the judge received, so calibration measures the
+            # same verdict that gates a freeze.
+            result = apply_referential_findings(
+                result,
+                run_referential_checks(
+                    request.artifact_type,
+                    request.current_artifact or "",
+                    request.upstream_artifacts,
+                ),
+            )
             verdicts.append(dict(result.hard_gates))
             # The judge's own reasons, kept verbatim. Recorded for dispute
             # analysis only -- scoring never sees this.
@@ -487,7 +517,12 @@ def run_calibration(
             provider = response.provider
             model = response.model
         case_runs.append(
-            CaseRuns(case=case, gate_verdicts=verdicts, run_evidence=evidence)
+            CaseRuns(
+                case=case,
+                gate_verdicts=verdicts,
+                run_evidence=evidence,
+                upstream_artifact_ids=case_upstream_ids,
+            )
         )
 
     return CalibrationRuns(
@@ -497,7 +532,7 @@ def run_calibration(
         model=model,
         prompt_sha256=prompt_sha256,
         case_runs=case_runs,
-        upstream_artifact_ids=delivered_upstream_ids,
+        upstream_artifact_ids=sorted(delivered_upstream_ids),
     )
 
 
@@ -681,6 +716,7 @@ def write_runs(runs: CalibrationRuns, path: Path) -> Path:
                 "dispute_ref": cr.case.dispute_ref,
                 "gate_verdicts": [dict(v) for v in cr.gate_verdicts],
                 "run_evidence": list(cr.run_evidence),
+                "upstream_artifact_ids": list(cr.upstream_artifact_ids),
             }
             for cr in runs.case_runs
         ],
