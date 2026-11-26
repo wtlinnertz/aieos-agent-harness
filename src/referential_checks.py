@@ -32,6 +32,8 @@ class ReferentialFinding:
     check: str
     description: str
     location: str
+    # Which tier produced the verdict; the focused tier (R1) reuses this type.
+    tier: str = TIER
 
 
 # sad-spec.md, Upstream Artifact Traceability: "PRD reference must be
@@ -158,7 +160,7 @@ def apply_referential_findings(
                 "gate": finding.gate,
                 "description": finding.description,
                 "location": finding.location,
-                "tier": TIER,
+                "tier": finding.tier,
                 "check": finding.check,
             }
         )

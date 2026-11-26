@@ -9,6 +9,7 @@ import re
 from typing import Optional
 
 from src.adapters.base import AgentAdapter
+from src.focused_checks import plan_non_goal_checks, run_non_goal_checks
 from src.models import (
     AgentRequest,
     AgentResponse,
@@ -212,6 +213,16 @@ class ConvergenceLoop:
                     validation_request.upstream_artifacts,
                 ),
             )
+            # R1 (FR-014 section 4i): one focused judge call per PRD
+            # exclusion, on the validate adapter, same combining rule.
+            r1_plan = plan_non_goal_checks(
+                validation_request.artifact_type,
+                gen_response.content,
+                validation_request.upstream_artifacts,
+                dict(validation_request.metadata),
+            )
+            r1_findings, r1_responses = run_non_goal_checks(r1_plan, self._val)
+            result = apply_referential_findings(result, r1_findings)
 
             # Record in ledger. FR-014: every verdict carries provenance --
             # the sha256 of the prompt content the judge actually received
@@ -235,6 +246,11 @@ class ConvergenceLoop:
                 "usage": {
                     "generate": _usage(gen_response),
                     "validate": _usage(val_response),
+                    "focused": [_usage(r) for r in r1_responses],
+                },
+                "focused_checks": {
+                    "r1_calls": len(r1_responses),
+                    "r1_skipped": r1_plan.skipped,
                 },
             }
             state.ledger.append(ledger_entry)
