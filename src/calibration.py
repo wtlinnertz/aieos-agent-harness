@@ -40,7 +40,8 @@ from typing import Optional
 import yaml
 
 from src.adapters.base import AgentAdapter
-from src.convergence import parse_validation_result
+from src.convergence import _usage, parse_validation_result
+from src.focused_checks import non_goal_findings, plan_non_goal_checks
 from src.models import AgentRequest, LifecycleEvent
 from src.referential_checks import apply_referential_findings, run_referential_checks
 
@@ -388,6 +389,19 @@ def load_gold_set(gold_dir: Path) -> list[GoldCase]:
 # ---------------------------------------------------------------------------
 
 
+def _provider_refusal(
+    case_id: str, run_index: int, label: str, calls_made: int, total_calls: int, exc: Exception
+) -> CalibrationError:
+    return CalibrationError(
+        "provider_error",
+        f"Case {case_id} run {run_index + 1}{label} "
+        f"(call {calls_made + 1} of {total_calls}): provider call "
+        f"failed: {type(exc).__name__}: {exc}. "
+        f"{calls_made} completed call(s) discarded -- no evidence "
+        f"written.",
+    )
+
+
 def run_calibration(
     cases: list[GoldCase],
     judge: AgentAdapter,
@@ -429,11 +443,27 @@ def run_calibration(
     provider = ""
     model = ""
     case_runs: list[CaseRuns] = []
-    total_calls = len(cases) * RUNS_PER_CASE
     calls_made = 0
     # Same object every call: the judge's context must be byte-identical
     # across the three runs of a case, same as prompt and fixture.
     upstream = dict(upstream_artifacts or {})
+    # Main judge call plus one R1 call per PRD exclusion, every run. Counted
+    # up front so a provider refusal reports its place in the whole run.
+    total_calls = sum(
+        RUNS_PER_CASE
+        * (
+            1
+            + len(
+                plan_non_goal_checks(
+                    case.artifact_type,
+                    case.input_content,
+                    dict((case_upstream or {}).get(case.case_id, upstream)),
+                    {},
+                ).queries
+            )
+        )
+        for case in cases
+    )
     # Read off the REQUEST below, not off `upstream`. Deriving it here would
     # report the context this function was handed rather than the context the
     # judge received, and those diverge in exactly the case worth catching.
@@ -477,13 +507,8 @@ def run_calibration(
             try:
                 response = judge.invoke(request)
             except Exception as exc:
-                raise CalibrationError(
-                    "provider_error",
-                    f"Case {case.case_id} run {run_index + 1} "
-                    f"(call {calls_made + 1} of {total_calls}): provider call "
-                    f"failed: {type(exc).__name__}: {exc}. "
-                    f"{calls_made} completed call(s) discarded -- no evidence "
-                    f"written.",
+                raise _provider_refusal(
+                    case.case_id, run_index, "", calls_made, total_calls, exc
                 ) from exc
             calls_made += 1
             try:
@@ -505,6 +530,31 @@ def run_calibration(
                     request.upstream_artifacts,
                 ),
             )
+            # R1 (FR-014 section 4i): same plan and scoring as the loop, calls
+            # counted and refused on provider error like the main call.
+            r1_plan = plan_non_goal_checks(
+                request.artifact_type,
+                request.current_artifact or "",
+                request.upstream_artifacts,
+                dict(request.metadata),
+            )
+            r1_responses = []
+            for query in r1_plan.queries:
+                try:
+                    r1_responses.append(judge.invoke(query.request))
+                except Exception as exc:
+                    raise _provider_refusal(
+                        case.case_id,
+                        run_index,
+                        f" R1 '{query.exclusion}'",
+                        calls_made,
+                        total_calls,
+                        exc,
+                    ) from exc
+                calls_made += 1
+            result = apply_referential_findings(
+                result, non_goal_findings(r1_plan, [r.content for r in r1_responses])
+            )
             verdicts.append(dict(result.hard_gates))
             # The judge's own reasons, kept verbatim. Recorded for dispute
             # analysis only -- scoring never sees this.
@@ -513,6 +563,11 @@ def run_calibration(
                 "status": result.status,
                 "summary": result.summary,
                 "blocking_issues": list(result.blocking_issues),
+                "focused_checks": {
+                    "r1_calls": len(r1_responses),
+                    "r1_skipped": r1_plan.skipped,
+                },
+                "focused_usage": [_usage(r) for r in r1_responses],
             })
             provider = response.provider
             model = response.model
