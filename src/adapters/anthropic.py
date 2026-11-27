@@ -8,6 +8,7 @@ import os
 import time
 
 from src.adapters.base import AgentAdapter
+from src.judge_inputs import template_for, template_withheld
 from src.models import AgentRequest, AgentResponse, HealthStatus
 
 
@@ -131,7 +132,9 @@ class AnthropicAdapter:
         parts: list[str] = [request.prompt_content]
 
         # Template
-        parts.append("\n\n## Template\n\n" + request.template_content)
+        # FR-014 step B: SAD judge calls go without the template.
+        if not template_withheld(request):
+            parts.append("\n\n## Template\n\n" + template_for(request))
 
         # Upstream artifacts
         for artifact_id, content in request.upstream_artifacts.items():
@@ -249,7 +252,7 @@ class AnthropicAdapter:
         # Compute input content hash for provenance
         hash_input = (
             request.spec_content
-            + request.template_content
+            + template_for(request)
             + request.prompt_content
             + "".join(request.upstream_artifacts.values())
             + "".join(request.declared_inputs.values())
